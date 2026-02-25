@@ -13,7 +13,11 @@
       "WebFetch(domain:blog.sotaaz.com)",
       "WebFetch(domain:github.com)",
       "Bash(claude mcp add --transport stdio stitch -- npx @_davideast/stitch-mcp proxy)",
-      "Bash(git add -A)"
+      "Bash(git add -A)",
+      "Bash(git commit:*)",
+      "Bash(git branch -M main)",
+      "Bash(git remote add origin https://github.com/An0maly07/TERRAPIN-V2.git)",
+      "Bash(git push -u origin main)"
     ]
   }
 }
