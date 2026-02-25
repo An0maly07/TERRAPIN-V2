@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude --version)",
+      "Bash(npx create-next-app@latest . --ts --tailwind --eslint --app --src-dir --import-alias \"@/*\" --turbopack --yes)",
+      "Bash(npm install zustand framer-motion lucide-react)",
+      "Bash(npx shadcn@latest init -d)",
+      "Bash(npx shadcn@latest add button card dialog sheet badge separator -y)",
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npx next dev)",
+      "WebFetch(domain:stitch.withgoogle.com)",
+      "WebFetch(domain:blog.sotaaz.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(claude mcp add --transport stdio stitch -- npx @_davideast/stitch-mcp proxy)",
+      "Bash(git add -A)",
+      "Bash(git commit:*)",
+      "Bash(git branch -M main)",
+      "Bash(git remote add origin https://github.com/An0maly07/TERRAPIN-V2.git)",
+      "Bash(git push -u origin main)",
+      "Bash(git rm -r --cached .)",
+      "Bash(git push origin main)"
+    ]
+  }
+}
