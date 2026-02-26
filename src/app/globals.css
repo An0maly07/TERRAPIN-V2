@@ -4,6 +4,49 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Smooth scroll with reduced-motion respect */
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0.05 265 / 0.45);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.55 0.1 265 / 0.65);
+}
+
+/* Keyframes */
+@keyframes gradient-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes shimmer-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+@keyframes float-y {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -154,5 +197,46 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  /* Animated gradient background */
+  .animated-gradient {
+    background-size: 200% 200%;
+    animation: gradient-shift 8s ease infinite;
+  }
+
+  /* Glow helpers */
+  .glow-primary {
+    box-shadow: 0 0 24px oklch(0.65 0.2 265 / 0.35);
+  }
+  .glow-accent {
+    box-shadow: 0 0 24px oklch(0.55 0.2 290 / 0.35);
+  }
+
+  /* Shimmer on hover (for CTA buttons) */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      oklch(1 0 0 / 0.18) 50%,
+      transparent 65%
+    );
+    transform: translateX(-100%);
+    transition: none;
+  }
+  .shimmer:hover::after {
+    animation: shimmer-sweep 0.55s ease forwards;
+  }
+
+  /* Float animation utility */
+  .float {
+    animation: float-y 3s ease-in-out infinite;
   }
 }

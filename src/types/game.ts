@@ -1,5 +1,5 @@
 export type GamePhase = "menu" | "guessing" | "result" | "summary";
-export type GameMode = "classic" | "duel" | "streaks";
+export type GameMode = "classic" | "campaign";
 
 export interface Position {
   lat: number;
@@ -21,4 +21,5 @@ export interface GameModeConfig {
   icon: string;
   rounds: number;
   timePerRound: number;
+  badges?: string[];
 }

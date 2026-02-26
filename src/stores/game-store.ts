@@ -54,9 +54,7 @@ function getRoundsForMode(mode: GameMode): number {
   switch (mode) {
     case "classic":
       return 5;
-    case "duel":
-      return 5;
-    case "streaks":
+    case "campaign":
       return 999;
   }
 }
@@ -65,10 +63,8 @@ function getTimeForMode(mode: GameMode): number {
   switch (mode) {
     case "classic":
       return 120;
-    case "duel":
+    case "campaign":
       return 60;
-    case "streaks":
-      return 30;
   }
 }
 

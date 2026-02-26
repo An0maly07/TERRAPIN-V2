@@ -10,20 +10,14 @@ export const GAME_MODES: GameModeConfig[] = [
     timePerRound: 120,
   },
   {
-    id: "duel",
-    title: "Duel",
-    description: "Race head-to-head against another player in real-time",
-    icon: "Swords",
-    rounds: 5,
-    timePerRound: 60,
-  },
-  {
-    id: "streaks",
-    title: "Country Streaks",
-    description: "Guess the correct country — how long can you keep your streak?",
+    id: "campaign",
+    title: "Campaign",
+    description:
+      "Embark on the ultimate Terrapin journey. Progress through per-country matchmaking, conquer regions, and climb the global leaderboards.",
     icon: "Flame",
     rounds: 999,
-    timePerRound: 30,
+    timePerRound: 0,
+    badges: ["PROGRESSIVE", "GLOBAL RANKING"],
   },
 ];
 
