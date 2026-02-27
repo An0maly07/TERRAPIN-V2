@@ -23,3 +23,23 @@ export interface GameModeConfig {
   timePerRound: number;
   badges?: string[];
 }
+
+export interface CountryBounds {
+  latMin: number;
+  latMax: number;
+  lngMin: number;
+  lngMax: number;
+}
+
+export interface CountryConfig {
+  id: string;
+  name: string;
+  totalMaps: number;
+  bounds: CountryBounds;
+  locations: Position[];
+}
+
+export type CampaignProgress = Record<
+  string,
+  { completed: number; highScore: number }
+>;

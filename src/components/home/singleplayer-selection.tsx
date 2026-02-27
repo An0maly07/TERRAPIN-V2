@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Globe, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GAME_MODES } from "@/lib/constants";
+import { CampaignSelection } from "./campaign-selection";
 import type { GameModeConfig } from "@/types/game";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -18,7 +20,15 @@ const PHASE_LABELS: Record<string, string> = {
   campaign: "MODE 02",
 };
 
-function ModeCard({ config, index }: { config: GameModeConfig; index: number }) {
+function ModeCard({
+  config,
+  index,
+  onCampaign,
+}: {
+  config: GameModeConfig;
+  index: number;
+  onCampaign: () => void;
+}) {
   const router = useRouter();
   const Icon = iconMap[config.icon] || Globe;
   const isClassic = config.id === "classic";
@@ -31,12 +41,20 @@ function ModeCard({ config, index }: { config: GameModeConfig; index: number }) 
         ...(config.timePerRound > 0 ? [`${config.timePerRound}S TIMER`] : []),
       ];
 
+  const handleClick = () => {
+    if (config.id === "campaign") {
+      onCampaign();
+    } else {
+      router.push(`/game?mode=${config.id}`);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.12, duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
-      onClick={() => router.push(`/game?mode=${config.id}`)}
+      onClick={handleClick}
       className={cn(
         "group flex cursor-pointer flex-col rounded-2xl border p-6 backdrop-blur-xl transition-all duration-300",
         "bg-card/75 shadow-[0_10px_40px_rgba(0,0,0,0.5)] hover:-translate-y-1.5",
@@ -112,6 +130,12 @@ function ModeCard({ config, index }: { config: GameModeConfig; index: number }) 
 }
 
 export function SingleplayerSelection() {
+  const [showCampaign, setShowCampaign] = useState(false);
+
+  if (showCampaign) {
+    return <CampaignSelection onBack={() => setShowCampaign(false)} />;
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -133,7 +157,12 @@ export function SingleplayerSelection() {
       {/* 2-card centered grid */}
       <div className="grid w-full grid-cols-1 gap-8 sm:grid-cols-2">
         {GAME_MODES.map((mode, i) => (
-          <ModeCard key={mode.id} config={mode} index={i} />
+          <ModeCard
+            key={mode.id}
+            config={mode}
+            index={i}
+            onCampaign={() => setShowCampaign(true)}
+          />
         ))}
       </div>
     </motion.div>

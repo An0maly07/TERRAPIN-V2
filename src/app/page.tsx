@@ -8,7 +8,7 @@ import { GlobeView } from "@/components/home/globe-view";
 import { SingleplayerSelection } from "@/components/home/singleplayer-selection";
 import { MultiplayerSelection } from "@/components/home/multiplayer-selection";
 
-export type LandingMode = "singleplayer" | "multiplayer" | "party" | null;
+export type LandingMode = "singleplayer" | "multiplayer" | null;
 
 export default function Home() {
   const [activeMode, setActiveMode] = useState<LandingMode>(null);

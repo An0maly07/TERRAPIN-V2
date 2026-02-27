@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Globe, Users, PartyPopper, HelpCircle, BookOpen } from "lucide-react";
+import { Globe, Users, HelpCircle, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TerrapinLogo } from "@/components/shared/terrapin-logo";
 import type { LandingMode } from "@/app/page";
@@ -15,7 +15,6 @@ interface NavItemConfig {
 const PRIMARY_NAV: NavItemConfig[] = [
   { id: "singleplayer", label: "SINGLEPLAYER", icon: Globe },
   { id: "multiplayer", label: "MULTIPLAYER", icon: Users },
-  { id: "party", label: "PARTY", icon: PartyPopper },
 ];
 
 const SECONDARY_NAV = [
