@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(taskkill //F //PID 19360)",
+      "Bash(git add src/app/page.tsx src/app/globals.css src/lib/constants.ts src/stores/game-store.ts src/types/game.ts tsconfig.json src/components/home/globe-view.tsx src/components/home/multiplayer-selection.tsx src/components/home/singleplayer-selection.tsx src/components/home/user-controls.tsx src/components/home/vertical-nav.tsx)",
+      "Bash(git checkout HEAD -- src/components/home/multiplayer-selection.tsx)",
+      "Bash(npm install --save-dev @types/google.maps)"
+    ]
+  }
+}
