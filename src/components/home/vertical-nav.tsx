@@ -15,10 +15,7 @@ interface NavItemConfig {
 const PRIMARY_NAV: NavItemConfig[] = [
   { id: "singleplayer", label: "SINGLEPLAYER", icon: Globe },
   { id: "multiplayer", label: "MULTIPLAYER", icon: Users },
-];
-
-const SECONDARY_NAV = [
-  { label: "QUIZ", icon: HelpCircle },
+  { id: "quiz", label: "QUIZ", icon: HelpCircle },
 ];
 
 interface VerticalNavProps {
@@ -73,26 +70,6 @@ export function VerticalNav({ activeMode, onModeChange }: VerticalNavProps) {
           );
         })}
 
-        {/* Secondary Nav */}
-        {SECONDARY_NAV.map((item, index) => {
-          const Icon = item.icon;
-          return (
-            <motion.button
-              key={item.label}
-              initial={{ opacity: 0, x: -120 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{
-                delay: 0.1 + (PRIMARY_NAV.length + index) * 0.1,
-                duration: 0.6,
-                ease: [0.2, 0.8, 0.2, 1],
-              }}
-              className="relative flex w-full items-center justify-start gap-3 rounded-full border-2 border-[oklch(0.13_0.02_260)] bg-white px-8 py-4 text-left text-[1.1rem] font-extrabold uppercase tracking-wide text-[oklch(0.13_0.02_260)] shadow-[8px_8px_0px_0px_oklch(0.65_0.2_265)] transition-all duration-300 hover:translate-x-1 hover:translate-y-1 hover:bg-gray-50 hover:shadow-[4px_4px_0px_0px_oklch(0.65_0.2_265)]"
-            >
-              <Icon size={20} className="text-primary" />
-              <span className="flex-1">{item.label}</span>
-            </motion.button>
-          );
-        })}
       </nav>
 
       {/* How to Play hint */}

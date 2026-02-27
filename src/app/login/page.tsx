@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, User, Eye, EyeOff, ArrowRight, Globe2, Loader2 } from "lucide-react";
 import { login, signup } from "./actions";
 import { useNotificationStore } from "@/stores/notifications";
+import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 
 type AuthMode = "login" | "signup";
@@ -16,6 +18,26 @@ export default function LoginPage() {
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [isPending, startTransition] = useTransition();
     const addNotification = useNotificationStore((s) => s.addNotification);
+    const router = useRouter();
+    const [guestLoading, setGuestLoading] = useState(false);
+
+    const handleGuestLogin = async () => {
+        setGuestLoading(true);
+        setError(null);
+        try {
+            const supabase = createClient();
+            const { error } = await supabase.auth.signInAnonymously();
+            if (error) {
+                // Anonymous auth not enabled — just navigate as unauthenticated guest
+                router.push("/");
+                return;
+            }
+            router.push("/");
+        } catch {
+            // Fallback: navigate without session
+            router.push("/");
+        }
+    };
 
     const handleSubmit = async (formData: FormData) => {
         setError(null);
@@ -261,14 +283,20 @@ export default function LoginPage() {
                         <div className="h-px flex-1 bg-white/[0.08]" />
                     </div>
 
-                    {/* Back to Home */}
-                    <Link
-                        href="/"
-                        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-muted-foreground transition-all duration-200 hover:border-white/[0.15] hover:bg-white/[0.06] hover:text-foreground"
+                    {/* Guest Login */}
+                    <button
+                        type="button"
+                        onClick={handleGuestLogin}
+                        disabled={guestLoading || isPending}
+                        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] text-sm font-semibold text-muted-foreground transition-all duration-200 hover:border-white/[0.15] hover:bg-white/[0.06] hover:text-foreground disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                        <Globe2 size={18} />
+                        {guestLoading ? (
+                            <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                            <Globe2 size={18} />
+                        )}
                         Continue as Guest
-                    </Link>
+                    </button>
                 </div>
 
                 {/* Footer */}

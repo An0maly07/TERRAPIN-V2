@@ -70,11 +70,15 @@ export function UserControls() {
             className="flex h-11 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.05] pl-1.5 pr-3 text-white/80 backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/[0.08] hover:text-white hover:shadow-lg"
             aria-label="User menu"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent text-xs font-bold text-white">
-              {(user.user_metadata?.full_name?.[0] || user.email?.[0] || "U").toUpperCase()}
+            <div className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold text-white ${user.is_anonymous ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-primary to-accent"}`}>
+              {user.is_anonymous
+                ? "G"
+                : (user.user_metadata?.full_name?.[0] || user.email?.[0] || "U").toUpperCase()}
             </div>
             <span className="max-w-[100px] truncate text-sm font-medium">
-              {user.user_metadata?.full_name || user.email?.split("@")[0]}
+              {user.is_anonymous
+                ? "Guest"
+                : user.user_metadata?.full_name || user.email?.split("@")[0]}
             </span>
             <ChevronDown
               size={14}
@@ -94,23 +98,34 @@ export function UserControls() {
                 {/* User info */}
                 <div className="border-b border-white/[0.06] px-4 py-3">
                   <p className="text-sm font-semibold text-foreground">
-                    {user.user_metadata?.full_name || "Explorer"}
+                    {user.is_anonymous ? "Guest Explorer" : user.user_metadata?.full_name || "Explorer"}
                   </p>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {user.email}
+                    {user.is_anonymous ? "Playing as guest" : user.email}
                   </p>
                 </div>
 
                 {/* Menu items */}
                 <div className="p-1.5">
-                  <Link
-                    href="/account"
-                    onClick={() => setDropdownOpen(false)}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-                  >
-                    <Settings size={16} />
-                    Account Settings
-                  </Link>
+                  {user.is_anonymous ? (
+                    <Link
+                      href="/login"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10"
+                    >
+                      <LogIn size={16} />
+                      Sign In / Sign Up
+                    </Link>
+                  ) : (
+                    <Link
+                      href="/account"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                    >
+                      <Settings size={16} />
+                      Account Settings
+                    </Link>
+                  )}
 
                   <form action="/auth/signout" method="post">
                     <button
@@ -118,7 +133,7 @@ export function UserControls() {
                       className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
                     >
                       <LogOut size={16} />
-                      Sign Out
+                      {user.is_anonymous ? "Exit Guest Mode" : "Sign Out"}
                     </button>
                   </form>
                 </div>

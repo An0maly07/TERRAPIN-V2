@@ -16,8 +16,8 @@ const iconMap: Record<string, React.ComponentType<{ size?: number; className?: s
 
 // Human-readable phase labels per mode id
 const PHASE_LABELS: Record<string, string> = {
-  classic: "OPERATIONAL PHASE 01",
-  campaign: "MODE 02",
+  classic: "EXPLORATION CHALLENGE",
+  campaign: "PROGRESSIVE JOURNEY",
 };
 
 function ModeCard({
@@ -150,7 +150,7 @@ export function SingleplayerSelection() {
         </h1>
         <div className="mx-auto mt-2 mb-3 h-[3px] w-[120px] rounded-sm bg-primary shadow-[0_0_12px_oklch(0.65_0.2_265_/_0.55)]" />
         <p className="text-xs font-semibold italic uppercase tracking-widest text-white/50">
-          Select your operational environment
+          Select Your Singleplayer Challenge
         </p>
       </div>
 

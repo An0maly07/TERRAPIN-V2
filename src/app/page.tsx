@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { VerticalNav } from "@/components/home/vertical-nav";
 import { UserControls } from "@/components/home/user-controls";
 import { GlobeView } from "@/components/home/globe-view";
 import { SingleplayerSelection } from "@/components/home/singleplayer-selection";
 import { MultiplayerSelection } from "@/components/home/multiplayer-selection";
+import { CategoryRoulette } from "@/components/quiz/category-roulette";
 
-export type LandingMode = "singleplayer" | "multiplayer" | null;
+export type LandingMode = "singleplayer" | "multiplayer" | "quiz" | null;
 
 export default function Home() {
+  const router = useRouter();
   const [activeMode, setActiveMode] = useState<LandingMode>(null);
 
   const handleModeChange = useCallback((mode: LandingMode) => {
@@ -47,7 +50,12 @@ export default function Home() {
 
           {/* Right: Content Area */}
           <section className="flex h-full w-full flex-1 items-center justify-center pr-[60px]">
-            {activeMode === "singleplayer" ? (
+            {activeMode === "quiz" ? (
+              <CategoryRoulette
+                onBack={() => setActiveMode(null)}
+                onCategorySelected={(id) => router.push(`/quiz?category=${id}`)}
+              />
+            ) : activeMode === "singleplayer" ? (
               <SingleplayerSelection />
             ) : activeMode === "multiplayer" ? (
               <MultiplayerSelection />
