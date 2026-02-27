@@ -9,6 +9,7 @@ import {
     useMemo,
     type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { User, AuthChangeEvent, Session } from "@supabase/supabase-js";
 
@@ -27,6 +28,7 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
+    const pathname = usePathname();
 
     // Memoize the client so we don't create a new instance every render
     const supabase = useMemo(() => createClient(), []);
@@ -39,11 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
     }, [supabase]);
 
+    // Re-check auth on every route change (handles server action redirects
+    // where cookies are set server-side but the client doesn't know yet)
     useEffect(() => {
-        // Get initial user
         refreshUser();
+    }, [pathname, refreshUser]);
 
-        // Listen for auth state changes
+    useEffect(() => {
+        // Listen for client-side auth state changes
         const {
             data: { subscription },
         } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
@@ -52,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
 
         return () => subscription.unsubscribe();
-    }, [supabase, refreshUser]);
+    }, [supabase]);
 
     return (
         <AuthContext.Provider value={{ user, loading, refreshUser }}>
