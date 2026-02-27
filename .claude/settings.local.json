@@ -28,7 +28,9 @@
       "Bash(node -e \"try { require.resolve\\(''zustand/middleware''\\); console.log\\(''OK''\\); } catch\\(e\\) { console.log\\(''MISSING''\\); }\")",
       "Bash(git add src/app/game/page.tsx src/app/layout.tsx src/app/page.tsx src/components/game/mini-map.tsx src/components/game/street-view.tsx src/components/game/compass-hud.tsx src/components/home/singleplayer-selection.tsx src/components/home/vertical-nav.tsx src/components/home/campaign-selection.tsx src/lib/constants.ts src/lib/geo.ts src/lib/google-maps.ts src/stores/game-store.ts src/types/game.ts package.json package-lock.json next-env.d.ts tsconfig.tsbuildinfo)",
       "Bash(git add .env.example .gitignore package.json package-lock.json src/components/home/multiplayer-selection.tsx src/lib/google-maps.ts src/lib/multiplayer.ts src/lib/supabase.ts src/stores/multiplayer-store.ts src/types/multiplayer.ts src/app/game/multiplayer/ src/components/multiplayer/)",
-      "Bash(git add src/lib/supabase.ts)"
+      "Bash(git add src/lib/supabase.ts)",
+      "Bash(xargs grep -l \"position.*fixed\\\\|position.*absolute\\\\|position.*sticky\\\\|z-\\\\[50\\\\]\\\\|z-50\\\\|overlay\\\\|modal\")",
+      "Bash(xargs grep -h \"notification\\\\|toast\")"
     ]
   }
 }
