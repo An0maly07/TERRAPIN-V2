@@ -1,6 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// Routes that don't require authentication
+const publicRoutes = ["/login", "/auth/confirm", "/auth/signout"];
+
 export async function updateSession(request: NextRequest) {
     let supabaseResponse = NextResponse.next({
         request,
@@ -30,7 +33,32 @@ export async function updateSession(request: NextRequest) {
     );
 
     // Refreshing the auth token
-    await supabase.auth.getUser();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    const pathname = request.nextUrl.pathname;
+
+    // Check if the current route is public
+    const isPublicRoute = publicRoutes.some((route) =>
+        pathname.startsWith(route)
+    );
+
+    // If user is NOT authenticated and trying to access a protected route,
+    // redirect them to /login
+    if (!user && !isPublicRoute) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        return NextResponse.redirect(url);
+    }
+
+    // If user IS authenticated and trying to access /login,
+    // redirect them to homepage
+    if (user && pathname === "/login") {
+        const url = request.nextUrl.clone();
+        url.pathname = "/";
+        return NextResponse.redirect(url);
+    }
 
     return supabaseResponse;
 }
