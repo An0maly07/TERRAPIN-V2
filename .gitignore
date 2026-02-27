@@ -1,3 +1,4 @@
 node_modules/
 TerraPin-main/
 .next/
+.env.local

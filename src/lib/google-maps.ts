@@ -3,7 +3,7 @@
  * Loads the script once and provides a promise-based API
  */
 
-const GOOGLE_MAPS_API_KEY = "AIzaSyCGEhPbCXOAFAo-BHBS21Yx13vTb8icEWM";
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!;
 
 let loadPromise: Promise<void> | null = null;
 
