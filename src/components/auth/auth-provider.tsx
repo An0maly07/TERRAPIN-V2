@@ -6,7 +6,6 @@ import {
     useEffect,
     useState,
     useCallback,
-    useMemo,
     type ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -28,8 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
-    // Use a stable reference to the singleton client
-    const supabase = useMemo(() => createClient(), []);
+    const supabase = createClient();
 
     const refreshUser = useCallback(async () => {
         const {
