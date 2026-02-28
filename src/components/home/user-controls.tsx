@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, User, LogOut, LogIn, Settings, ChevronDown } from "lucide-react";
+import { Search, User, LogOut, LogIn, Settings, ChevronDown, UserCircle } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { NotificationBell, NotificationPanel } from "@/components/home/notification-panel";
 import Link from "next/link";
@@ -117,14 +117,24 @@ export function UserControls() {
                       Sign In / Sign Up
                     </Link>
                   ) : (
-                    <Link
-                      href="/account"
-                      onClick={() => setDropdownOpen(false)}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-                    >
-                      <Settings size={16} />
-                      Account Settings
-                    </Link>
+                    <>
+                      <Link
+                        href="/profile"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                      >
+                        <UserCircle size={16} />
+                        Profile
+                      </Link>
+                      <Link
+                        href="/account"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                      >
+                        <Settings size={16} />
+                        Account Settings
+                      </Link>
+                    </>
                   )}
 
                   <form action="/auth/signout" method="post">

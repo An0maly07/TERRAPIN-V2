@@ -14,9 +14,13 @@ export function GameHUD() {
   const totalRounds = useGameStore((s) => s.totalRounds);
   const score = useGameStore((s) => s.score);
   const streak = useGameStore((s) => s.streak);
+  const phase = useGameStore((s) => s.phase);
   const resetGame = useGameStore((s) => s.resetGame);
 
   const displayRounds = totalRounds >= 999 ? "∞" : totalRounds;
+
+  // Hide HUD during result phase — the full-screen map + ResultPanel take over
+  if (phase === "result") return null;
 
   return (
     <motion.div

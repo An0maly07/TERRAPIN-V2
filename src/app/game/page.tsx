@@ -7,11 +7,15 @@ import { StreetView } from "@/components/game/street-view";
 import { MiniMap } from "@/components/game/mini-map";
 import { CompassHUD } from "@/components/game/compass-hud";
 import { Confetti } from "@/components/game/confetti";
+import { ResultPanel } from "@/components/game/result-panel";
 import { ResultsModal } from "@/components/results/results-modal";
 import { useGameStore } from "@/stores/game-store";
+import { usePlayerInit } from "@/hooks/use-player-init";
 import type { GameMode } from "@/types/game";
 
 function GameContent() {
+  // Load player progression from Supabase on mount (if authenticated)
+  usePlayerInit();
   const searchParams = useSearchParams();
   const phase = useGameStore((s) => s.phase);
   const startGame = useGameStore((s) => s.startGame);
@@ -56,6 +60,7 @@ function GameContent() {
         <CompassHUD />
         <MiniMap />
         <Confetti />
+        <ResultPanel />
         <ResultsModal />
       </div>
     </div>
