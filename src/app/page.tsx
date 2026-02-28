@@ -9,12 +9,15 @@ import { GlobeView } from "@/components/home/globe-view";
 import { SingleplayerSelection } from "@/components/home/singleplayer-selection";
 import { MultiplayerSelection } from "@/components/home/multiplayer-selection";
 import { CategoryRoulette } from "@/components/quiz/category-roulette";
+import { StarfieldBackground } from "@/components/home/starfield-background";
+import { useStarfieldConfig } from "@/hooks/use-starfield-config";
 
 export type LandingMode = "singleplayer" | "multiplayer" | "quiz" | null;
 
 export default function Home() {
   const router = useRouter();
   const [activeMode, setActiveMode] = useState<LandingMode>(null);
+  const starfield = useStarfieldConfig();
 
   const handleModeChange = useCallback((mode: LandingMode) => {
     setActiveMode((prev) => (prev === mode ? null : mode));
@@ -22,6 +25,9 @@ export default function Home() {
 
   return (
     <div className="relative flex h-screen max-h-screen flex-col overflow-hidden">
+      {/* Reactive starfield */}
+      <StarfieldBackground config={starfield.config} effects={starfield.effects} />
+
       {/* Background gradient orbs */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
