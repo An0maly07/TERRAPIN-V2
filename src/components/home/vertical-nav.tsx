@@ -21,9 +21,10 @@ const PRIMARY_NAV: NavItemConfig[] = [
 interface VerticalNavProps {
   activeMode: LandingMode;
   onModeChange: (mode: LandingMode) => void;
+  onHowToPlay?: () => void;
 }
 
-export function VerticalNav({ activeMode, onModeChange }: VerticalNavProps) {
+export function VerticalNav({ activeMode, onModeChange, onHowToPlay }: VerticalNavProps) {
   return (
     <div className="flex h-full w-[320px] flex-col justify-center gap-8 pl-5">
       {/* Branding */}
@@ -77,6 +78,7 @@ export function VerticalNav({ activeMode, onModeChange }: VerticalNavProps) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.6, duration: 0.5 }}
+        onClick={onHowToPlay}
         className="flex items-center gap-2 px-5 text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 transition-colors duration-200 hover:text-muted-foreground"
       >
         <BookOpen size={13} />

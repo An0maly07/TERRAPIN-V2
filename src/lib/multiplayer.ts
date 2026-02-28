@@ -108,11 +108,12 @@ export interface PresencePayload {
     isHost: boolean;
 }
 
-export function trackPresence(
+export async function trackPresence(
     channel: RealtimeChannel,
     player: PresencePayload
-): void {
-    channel.track(player);
+): Promise<string> {
+    const result = await channel.track(player);
+    return result;
 }
 
 export function presenceToPlayers(

@@ -122,13 +122,19 @@ export function MatchSummary() {
                         <Home size={14} />
                         Main Menu
                     </button>
-                    <button
-                        onClick={handlePlayAgain}
-                        className="shimmer flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary/80 py-3.5 text-sm font-extrabold uppercase tracking-wide text-white transition-all duration-200 hover:shadow-[0_0_24px_oklch(0.65_0.2_265_/_0.45)]"
-                    >
-                        <RotateCcw size={16} />
-                        Play Again
-                    </button>
+                    {isHost ? (
+                        <button
+                            onClick={handlePlayAgain}
+                            className="shimmer flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary/80 py-3.5 text-sm font-extrabold uppercase tracking-wide text-white transition-all duration-200 hover:shadow-[0_0_24px_oklch(0.65_0.2_265_/_0.45)]"
+                        >
+                            <RotateCcw size={16} />
+                            Play Again
+                        </button>
+                    ) : (
+                        <div className="flex flex-1 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.02] py-3.5 text-xs font-bold italic uppercase tracking-wider text-white/30">
+                            Waiting for host to restart...
+                        </div>
+                    )}
                 </motion.div>
             </div>
         </motion.div>

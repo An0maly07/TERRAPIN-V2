@@ -10,6 +10,7 @@ import { SingleplayerSelection } from "@/components/home/singleplayer-selection"
 import { MultiplayerSelection } from "@/components/home/multiplayer-selection";
 import { CategoryRoulette } from "@/components/quiz/category-roulette";
 import { StarfieldBackground } from "@/components/home/starfield-background";
+import { HowToPlayModal } from "@/components/home/how-to-play-modal";
 import { useStarfieldConfig } from "@/hooks/use-starfield-config";
 
 export type LandingMode = "singleplayer" | "multiplayer" | "quiz" | null;
@@ -17,6 +18,7 @@ export type LandingMode = "singleplayer" | "multiplayer" | "quiz" | null;
 export default function Home() {
   const router = useRouter();
   const [activeMode, setActiveMode] = useState<LandingMode>(null);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
   const starfield = useStarfieldConfig();
 
   const handleModeChange = useCallback((mode: LandingMode) => {
@@ -51,7 +53,7 @@ export default function Home() {
         <div className="grid h-full w-full max-w-[1800px] grid-cols-[320px_1fr] items-center gap-10">
           {/* Left: Vertical Navigation */}
           <aside className="flex h-full flex-col">
-            <VerticalNav activeMode={activeMode} onModeChange={handleModeChange} />
+            <VerticalNav activeMode={activeMode} onModeChange={handleModeChange} onHowToPlay={() => setShowHowToPlay(true)} />
           </aside>
 
           {/* Right: Content Area */}
@@ -71,6 +73,9 @@ export default function Home() {
           </section>
         </div>
       </main>
+
+      {/* How to Play Modal */}
+      <HowToPlayModal open={showHowToPlay} onClose={() => setShowHowToPlay(false)} />
     </div>
   );
 }
