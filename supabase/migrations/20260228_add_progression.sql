@@ -70,11 +70,14 @@ LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = ''
 AS $$
 BEGIN
+  -- Blank/missing metadata must become NULL, not ''. An empty string fails the
+  -- username_length CHECK and collides with the UNIQUE index on a second signup;
+  -- NULL passes both. Anonymous sign-ins arrive with no metadata at all.
   INSERT INTO public.profiles (id, full_name, username, created_at, updated_at)
   VALUES (
     NEW.id,
-    COALESCE(NEW.raw_user_meta_data ->> 'full_name', ''),
-    COALESCE(NEW.raw_user_meta_data ->> 'username', ''),
+    NULLIF(TRIM(COALESCE(NEW.raw_user_meta_data ->> 'full_name', '')), ''),
+    NULLIF(TRIM(COALESCE(NEW.raw_user_meta_data ->> 'username', '')), ''),
     now(),
     now()
   )

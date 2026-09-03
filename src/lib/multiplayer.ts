@@ -99,6 +99,40 @@ export function destroyChannel(): void {
     }
 }
 
+/**
+ * A second, per-lobby channel used only to carry guess positions from a
+ * guesser to the host. Unlike the main lobby channel, non-host clients never
+ * subscribe to this one — they only ever call `.httpSend()` on it, so the
+ * realtime server never delivers other players' raw guesses to their sockets.
+ * Only the host subscribes, so it's the only client that ever receives them.
+ */
+let activeGuessesChannel: RealtimeChannel | null = null;
+
+export function getActiveGuessesChannel(): RealtimeChannel | null {
+    return activeGuessesChannel;
+}
+
+export function createGuessesChannel(lobbyCode: string): RealtimeChannel {
+    if (activeGuessesChannel) {
+        supabase.removeChannel(activeGuessesChannel);
+        activeGuessesChannel = null;
+    }
+
+    const channelName = `terrapin-lobby:${lobbyCode}:guesses`;
+    activeGuessesChannel = supabase.channel(channelName, {
+        config: { broadcast: { self: false } },
+    });
+
+    return activeGuessesChannel;
+}
+
+export function destroyGuessesChannel(): void {
+    if (activeGuessesChannel) {
+        supabase.removeChannel(activeGuessesChannel);
+        activeGuessesChannel = null;
+    }
+}
+
 /* ── Presence Helpers ─────────────────────────────────────── */
 
 export interface PresencePayload {

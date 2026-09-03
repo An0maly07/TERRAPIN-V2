@@ -56,16 +56,15 @@ async function syncProgression(
   try {
     const supabase = createClient();
     const { error } = await supabase.rpc("update_progression", {
-      p_user_id: userId,
       p_xp_earned: reward.totalXP,
       p_credits_earned: reward.creditsEarned,
       p_new_level: reward.newLevel,
       p_game_score: gameScore,
       p_best_streak: reward.bestStreak,
     });
-    if (error) console.error("[TerraPin] Progression sync failed:", error.message);
+    if (error) console.error(`[TerraPin] Progression sync failed for ${userId}:`, error.message);
   } catch (err) {
-    console.error("[TerraPin] Progression sync error:", err);
+    console.error(`[TerraPin] Progression sync error for ${userId}:`, err);
   }
 }
 

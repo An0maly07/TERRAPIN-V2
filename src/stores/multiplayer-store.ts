@@ -25,6 +25,8 @@ import {
     getPlayerId,
     createChannel,
     destroyChannel,
+    createGuessesChannel,
+    destroyGuessesChannel,
     trackPresence,
     presenceToPlayers,
     broadcastEvent,
@@ -86,6 +88,10 @@ interface MultiplayerState {
 /* ── Internal refs (not in Zustand to avoid serialization) ── */
 
 let channelRef: RealtimeChannel | null = null;
+/** Host-only-subscribed channel that carries raw guess positions (see setupGuessesListener). */
+let guessesChannelRef: RealtimeChannel | null = null;
+/** Guard so setupGuessesListener isn't attached twice (initial host + host migration). */
+let guessesListenerAttached = false;
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
 let autoAdvanceTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -172,6 +178,12 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
             // Set up presence + broadcast listeners
             setupPresenceListeners(channel, get, set);
             setupBroadcastListeners(channel);
+
+            // Host-only channel for raw guess positions — subscribe now since we're the host.
+            const guessesChannel = createGuessesChannel(code);
+            guessesChannelRef = guessesChannel;
+            setupGuessesListener(guessesChannel);
+            guessesChannel.subscribe();
 
             // Connection timeout — if we don't connect in 15s, abort
             connectionTimeout = setTimeout(() => {
@@ -266,6 +278,10 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
             setupPresenceListeners(channel, get, set);
             setupBroadcastListeners(channel);
 
+            // Handle only, not subscribed — we're not host, so we only ever
+            // httpSend() our own guess to it; we must never receive from it.
+            guessesChannelRef = createGuessesChannel(normalizedCode);
+
             // Connection timeout — if we don't connect in 15s, abort
             connectionTimeout = setTimeout(() => {
                 const currentPhase = get().phase;
@@ -336,7 +352,10 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
     leaveLobby: () => {
         clearTimers();
         destroyChannel();
+        destroyGuessesChannel();
         channelRef = null;
+        guessesChannelRef = null;
+        guessesListenerAttached = false;
         subscribedOnce = false;
         roundLocations = [];
         currentRoundGuesses.clear();
@@ -423,12 +442,18 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
 
         set({ hasGuessed: true });
 
-        // Broadcast guess to all
-        broadcastEvent(channelRef, "SUBMIT_GUESS", {
-            playerId: myId,
-            position: guessPosition,
-            timeSpent,
-        });
+        // Public: tell every client this player has guessed — no position,
+        // just the flag that drives the "has guessed" checkmark in the UI.
+        broadcastEvent(channelRef, "GUESS_SUBMITTED", { playerId: myId });
+
+        // Private: send the actual guess only to the host, via a channel
+        // only the host is subscribed to (see setupGuessesListener). Works
+        // whether or not this client is subscribed to that channel.
+        if (guessesChannelRef) {
+            guessesChannelRef
+                .httpSend("SUBMIT_GUESS", { playerId: myId, position: guessPosition, timeSpent })
+                .catch((err) => console.error("[Multiplayer] Failed to submit guess:", err));
+        }
     },
 
     /* ── Return to Lobby (Play Again) ────────────────────── */
@@ -447,7 +472,10 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
     resetMultiplayer: () => {
         clearTimers();
         destroyChannel();
+        destroyGuessesChannel();
         channelRef = null;
+        guessesChannelRef = null;
+        guessesListenerAttached = false;
         subscribedOnce = false;
         roundLocations = [];
         currentRoundGuesses.clear();
@@ -566,6 +594,13 @@ function setupPresenceListeners(
                         trackPresence(channel, { ...myPresence, isHost: true });
                     }
 
+                    // We were only send-only on the guesses channel before —
+                    // subscribe now so we actually receive future guesses.
+                    if (guessesChannelRef) {
+                        setupGuessesListener(guessesChannelRef);
+                        guessesChannelRef.subscribe();
+                    }
+
                     // If we're mid-game and the round was stuck, end it
                     if (currentPhase === "guessing") {
                         // Give a short delay for state to settle, then check if round should end
@@ -586,6 +621,55 @@ function setupPresenceListeners(
                     : p;
             });
             set({ players: merged });
+        }
+    });
+}
+
+/* ── Guesses Channel Listener (host only) ─────────────────── */
+
+/**
+ * Attaches the handler that collects raw guess positions on the host-only
+ * guesses channel. Only ever meaningfully invoked by whoever is currently
+ * host — non-host clients never subscribe to this channel, so they never
+ * receive these events regardless of whether a listener is attached.
+ */
+function setupGuessesListener(channel: RealtimeChannel) {
+    if (guessesListenerAttached) return;
+    guessesListenerAttached = true;
+
+    channel.on("broadcast", { event: "SUBMIT_GUESS" }, ({ payload }) => {
+        const store = useMultiplayerStore;
+        const { isHost } = store.getState();
+        if (!isHost || !channelRef) return;
+
+        const data = payload as { playerId: string; position: Position; timeSpent: number };
+
+        // Prevent duplicate guesses from same player
+        if (currentRoundGuesses.has(data.playerId)) return;
+
+        currentRoundGuesses.set(data.playerId, {
+            position: data.position,
+            timeSpent: data.timeSpent,
+        });
+
+        // Mark the player as guessed locally (don't wait on the round-trip of
+        // the GUESS_SUBMITTED broadcast on the main channel to see our own update)
+        store.setState({
+            players: store.getState().players.map((p) =>
+                p.id === data.playerId ? { ...p, hasGuessed: true } : p
+            ),
+        });
+
+        // Confirm receipt to everyone (drives the "has guessed" checkmark)
+        broadcastEvent(channelRef, "PLAYER_GUESSED", { playerId: data.playerId });
+
+        // Check if all connected players have guessed
+        const updatedPlayers = store.getState().players;
+        const allDone = updatedPlayers.every(
+            (p) => p.hasGuessed || !p.connected
+        );
+        if (allDone) {
+            hostEndRound();
         }
     });
 }
@@ -648,40 +732,16 @@ function setupBroadcastListeners(channel: RealtimeChannel) {
         });
     });
 
-    // Submit guess (host collects)
-    channel.on("broadcast", { event: "SUBMIT_GUESS" }, ({ payload }) => {
-        const { isHost, players } = store.getState();
-        const data = payload as { playerId: string; position: Position; timeSpent: number };
-
-        // All clients update the "guessed" status
+    // Guess submitted (position-free — the actual position goes to the host
+    // only, over the separate guesses-only channel; see setupGuessesListener).
+    // Every client uses this just to flip the "has guessed" checkmark.
+    channel.on("broadcast", { event: "GUESS_SUBMITTED" }, ({ payload }) => {
+        const data = payload as { playerId: string };
         store.setState({
-            players: players.map((p) =>
+            players: store.getState().players.map((p) =>
                 p.id === data.playerId ? { ...p, hasGuessed: true } : p
             ),
         });
-
-        // Host collects all guesses
-        if (isHost) {
-            // Prevent duplicate guesses from same player
-            if (currentRoundGuesses.has(data.playerId)) return;
-
-            currentRoundGuesses.set(data.playerId, {
-                position: data.position,
-                timeSpent: data.timeSpent,
-            });
-
-            // Broadcast that this player has guessed
-            broadcastEvent(channel, "PLAYER_GUESSED", { playerId: data.playerId });
-
-            // Check if all connected players have guessed
-            const updatedPlayers = store.getState().players;
-            const allDone = updatedPlayers.every(
-                (p) => p.hasGuessed || !p.connected
-            );
-            if (allDone) {
-                hostEndRound();
-            }
-        }
     });
 
     // Timer update

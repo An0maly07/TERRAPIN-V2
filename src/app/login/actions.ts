@@ -34,6 +34,7 @@ export async function signup(formData: FormData) {
         password,
         options: {
             data: {
+                username,
                 full_name: username,
             },
         },
