@@ -69,7 +69,9 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npx eslint src/components/game/street-view.tsx src/app/game/multiplayer/page.tsx 2>&1 | Select-Object -Last 30)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npx eslint src/components/game/street-view.tsx src/app/game/multiplayer/page.tsx 2>&1 | Select-Object -Last 30; & \"C:\\\\Program Files\\\\nodejs\\\\node.exe\" node_modules/typescript/bin/tsc --noEmit 2>&1 | Select-Object -First 20)",
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;$env:Path\"; npm run build 2>&1 | Select-Object -Last 10)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(vercel status *)",
+      "PowerShell(npm install -g vercel)"
     ],
     "additionalDirectories": [
       "C:\\Users\\VINEET\\Documents\\TERRAPIN\\TERRAPIN-V2"
