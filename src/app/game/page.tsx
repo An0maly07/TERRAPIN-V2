@@ -19,28 +19,22 @@ function GameContent() {
   const searchParams = useSearchParams();
   const phase = useGameStore((s) => s.phase);
   const startGame = useGameStore((s) => s.startGame);
-  const selectedCountryId = useGameStore((s) => s.selectedCountryId);
 
-  // Track the country from the URL so we can detect changes
+  // Track the mode/country from the URL so we can detect changes
   const mode = (searchParams.get("mode") as GameMode) || "classic";
   const country = searchParams.get("country") ?? undefined;
-  const hasStartedRef = useRef(false);
+  const startedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Start a new game if:
-    // 1. We're in the menu phase (fresh load), OR
-    // 2. The URL country changed from what the store has (user switched countries)
-    const countryChanged =
-      mode === "campaign" &&
-      country !== undefined &&
-      selectedCountryId !== null &&
-      country !== selectedCountryId;
-
-    if (phase === "menu" || countryChanged || !hasStartedRef.current) {
-      hasStartedRef.current = true;
+    // Start a game only on first mount, or when the URL mode/country changes.
+    // Restarts from the results modal ("Play Again") call startGame themselves,
+    // and going back to the menu must not silently kick off a new game here.
+    const key = `${mode}:${country ?? ""}`;
+    if (startedKeyRef.current !== key) {
+      startedKeyRef.current = key;
       startGame(mode, country);
     }
-  }, [searchParams, phase, startGame, mode, country, selectedCountryId]);
+  }, [startGame, mode, country]);
 
   if (phase === "menu") {
     return (

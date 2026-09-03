@@ -21,23 +21,22 @@ import { useGameStore } from "@/stores/game-store";
 export default function MultiplayerGamePage() {
     const router = useRouter();
     const phase = useMultiplayerStore((s) => s.phase);
-    const panoPosition = useMultiplayerStore((s) => s.panoPosition);
     const panoId = useMultiplayerStore((s) => s.panoId);
     const roundTimeLeft = useMultiplayerStore((s) => s.roundTimeLeft);
-    const hasGuessed = useMultiplayerStore((s) => s.hasGuessed);
     const currentRound = useMultiplayerStore((s) => s.currentRound);
     const totalRounds = useMultiplayerStore((s) => s.totalRounds);
     const settings = useMultiplayerStore((s) => s.settings);
-    const guessPosition = useMultiplayerStore((s) => s.guessPosition);
     const setGuessPosition = useMultiplayerStore((s) => s.setGuessPosition);
     const submitGuess = useMultiplayerStore((s) => s.submitGuess);
 
-    // Sync multiplayer state → singleplayer game store for StreetView/MiniMap compatibility
+    // Sync multiplayer state → singleplayer game store for StreetView/MiniMap compatibility.
+    // actualPosition stays null: it's the answer, and the host doesn't send it
+    // until the round ends. StreetView mounts from panoId alone.
     useEffect(() => {
-        if (phase === "guessing" && panoPosition) {
+        if (phase === "guessing" && panoId) {
             useGameStore.setState({
                 phase: "guessing",
-                actualPosition: panoPosition,
+                actualPosition: null,
                 panoId: panoId,
                 isLoadingLocation: false,
                 timer: roundTimeLeft,
@@ -47,7 +46,8 @@ export default function MultiplayerGamePage() {
                 guessPosition: null,
             });
         }
-    }, [phase, panoPosition, panoId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [phase, panoId]);
 
     // Sync guess position from game store back to multiplayer store
     const gameGuessPosition = useGameStore((s) => s.guessPosition);
@@ -66,10 +66,17 @@ export default function MultiplayerGamePage() {
 
     // Redirect to home if not in any multiplayer phase
     // Skip "creating"/"joining" — those are transient states before "lobby"
+    const triedRejoin = useRef(false);
     useEffect(() => {
-        if (phase === "menu") {
-            router.push("/");
+        if (phase !== "menu") return;
+
+        // A refresh wipes the (unserialisable) store, so try the sessionStorage
+        // breadcrumb once before giving up and going home.
+        if (!triedRejoin.current) {
+            triedRejoin.current = true;
+            if (useMultiplayerStore.getState().rejoinLobby()) return;
         }
+        router.push("/");
     }, [phase, router]);
 
     // Cleanup on tab/window close only — NOT on React unmount
@@ -84,19 +91,6 @@ export default function MultiplayerGamePage() {
         window.addEventListener("beforeunload", handleBeforeUnload);
         return () => window.removeEventListener("beforeunload", handleBeforeUnload);
     }, []);
-
-    // Handle guess submission — override the game store's submitGuess
-    useEffect(() => {
-        if (phase === "guessing") {
-            const unsubGameStore = useGameStore.subscribe((state) => {
-                if (state.phase === "result" && phase === "guessing" && !hasGuessed) {
-                    useGameStore.setState({ phase: "guessing" });
-                    submitGuess();
-                }
-            });
-            return () => unsubGameStore();
-        }
-    }, [phase, hasGuessed, submitGuess]);
 
     // Render by phase
     switch (phase) {
@@ -117,7 +111,7 @@ export default function MultiplayerGamePage() {
                     <div className="relative flex flex-1 flex-col overflow-hidden">
                         <StreetView />
                         <CompassHUD />
-                        <MiniMap />
+                        <MiniMap onGuess={submitGuess} />
                     </div>
                 </div>
             );

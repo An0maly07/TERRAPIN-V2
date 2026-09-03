@@ -40,7 +40,7 @@ const MULTIPLAYER_MODES: MultiplayerModeConfig[] = [
     title: "LAN Mode",
     icon: Wifi,
     description:
-      "Play with friends on the same network. Host a private room and battle it out on shared WiFi — no account needed, just pure geography.",
+      "Play with friends on the same network. Host a private room, share the party code, and battle it out on shared WiFi — pure geography, no maps allowed.",
     badges: ["UP TO 8 PLAYERS", "LOCAL NETWORK", "REALTIME"],
     cta: "SELECT",
     isPrimary: true,

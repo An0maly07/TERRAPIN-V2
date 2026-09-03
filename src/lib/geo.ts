@@ -107,6 +107,9 @@ export async function isInCountry(
 
 /* ── Street View location finder ────────────────────────── */
 
+/** Max wait for a single getPanorama lookup before treating it as "no coverage". */
+const STREET_VIEW_LOOKUP_TIMEOUT_MS = 8_000;
+
 /**
  * Attempts to find a valid Street View panorama near the given coords.
  * Returns the snapped position + panoId, or null if none found.
@@ -121,6 +124,19 @@ export async function findStreetViewAt(
   const latLng = new google.maps.LatLng(pos.lat, pos.lng);
 
   return new Promise((resolve) => {
+    // getPanorama only settles from its callback — bound the wait so one
+    // stalled lookup can't hang a whole round-generation pass.
+    let done = false;
+    const settle = (
+      value: { lat: number; lng: number; panoId: string; name: string } | null
+    ) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => settle(null), STREET_VIEW_LOOKUP_TIMEOUT_MS);
+
     sv.getPanorama(
       {
         location: latLng,
@@ -136,14 +152,14 @@ export async function findStreetViewAt(
           status === google.maps.StreetViewStatus.OK &&
           data?.location?.latLng
         ) {
-          resolve({
+          settle({
             lat: data.location.latLng.lat(),
             lng: data.location.latLng.lng(),
             panoId: data.location.pano || "",
             name: data.location.description || "Unknown location",
           });
         } else {
-          resolve(null);
+          settle(null);
         }
       }
     );

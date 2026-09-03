@@ -48,18 +48,81 @@ export function calculateScore(distanceKm: number): number {
 
 let _playerId: string | null = null;
 
+/**
+ * crypto.randomUUID is gated to secure contexts, so it is undefined when the app
+ * is served over plain http (a LAN IP, say). crypto.getRandomValues is not gated,
+ * so fall back to it before resorting to Math.random.
+ */
+function randomId(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+        const b = crypto.getRandomValues(new Uint8Array(16));
+        b[6] = (b[6] & 0x0f) | 0x40;
+        b[8] = (b[8] & 0x3f) | 0x80;
+        const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+        return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+    }
+    return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function getPlayerId(): string {
-    if (!_playerId) {
+    if (_playerId) return _playerId;
+
+    try {
         // Use sessionStorage so each tab gets a unique ID
         const stored = sessionStorage.getItem("terrapin-player-id");
         if (stored) {
             _playerId = stored;
-        } else {
-            _playerId = crypto.randomUUID();
-            sessionStorage.setItem("terrapin-player-id", _playerId);
+            return _playerId;
         }
+        _playerId = randomId();
+        sessionStorage.setItem("terrapin-player-id", _playerId);
+    } catch {
+        // Site data blocked — fall back to an in-memory id (lost on refresh).
+        console.warn("[Multiplayer] sessionStorage unavailable; using in-memory player id");
+        _playerId = _playerId ?? randomId();
     }
+
     return _playerId;
+}
+
+/* ── Lobby Breadcrumb (survives a page refresh) ───────────── */
+
+const LOBBY_BREADCRUMB_KEY = "terrapin-lobby";
+
+export interface LobbyBreadcrumb {
+    code: string;
+    name: string;
+}
+
+export function writeLobbyBreadcrumb(code: string, name: string): void {
+    try {
+        sessionStorage.setItem(LOBBY_BREADCRUMB_KEY, JSON.stringify({ code, name }));
+    } catch {
+        // Site data blocked — rejoin-after-refresh simply won't be available.
+    }
+}
+
+export function readLobbyBreadcrumb(): LobbyBreadcrumb | null {
+    try {
+        const raw = sessionStorage.getItem(LOBBY_BREADCRUMB_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Partial<LobbyBreadcrumb>;
+        if (!parsed?.code) return null;
+        return { code: parsed.code, name: parsed.name || "Player" };
+    } catch {
+        return null;
+    }
+}
+
+export function clearLobbyBreadcrumb(): void {
+    try {
+        sessionStorage.removeItem(LOBBY_BREADCRUMB_KEY);
+    } catch {
+        // Nothing to clean up if storage is unavailable.
+    }
 }
 
 /* ── Channel Manager ──────────────────────────────────────── */
@@ -170,6 +233,43 @@ export function presenceToPlayers(
         }
     }
     return players;
+}
+
+/**
+ * Probe an already-subscribed channel for other occupants.
+ *
+ * Realtime channels are created on demand, so joining a typo'd party code
+ * "succeeds" into an empty room. Resolves with the other players present, or an
+ * empty array once the timeout elapses.
+ */
+export function waitForOtherPresence(
+    channel: RealtimeChannel,
+    myId: string,
+    timeoutMs = 2500
+): Promise<PresencePayload[]> {
+    return new Promise((resolve) => {
+        const deadline = Date.now() + timeoutMs;
+        const poll = setInterval(() => {
+            const state = channel.presenceState<PresencePayload>();
+            const others: PresencePayload[] = [];
+            for (const entries of Object.values(state)) {
+                const p = entries?.[0];
+                if (p && p.id !== myId) {
+                    others.push({
+                        id: p.id,
+                        name: p.name,
+                        avatarColor: p.avatarColor,
+                        isHost: p.isHost,
+                    });
+                }
+            }
+
+            if (others.length > 0 || Date.now() >= deadline) {
+                clearInterval(poll);
+                resolve(others);
+            }
+        }, 200);
+    });
 }
 
 /* ── Broadcast Helpers ────────────────────────────────────── */

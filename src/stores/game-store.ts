@@ -220,12 +220,17 @@ export const useGameStore = create<GameState>()(
           selectedCountryId: countryId ?? null,
         });
 
-        fetchRandomLocation(countryId, gen).then(({ position, panoId, generation }) => {
-          // Only apply if this fetch is still current
-          if (generation === fetchGeneration) {
-            set({ actualPosition: position, panoId, isLoadingLocation: false });
-          }
-        });
+        fetchRandomLocation(countryId, gen)
+          .then(({ position, panoId, generation }) => {
+            // Only apply if this fetch is still current
+            if (generation === fetchGeneration) {
+              set({ actualPosition: position, panoId, isLoadingLocation: false });
+            }
+          })
+          .catch((err) => {
+            console.error("[Game] Failed to load location:", err);
+            if (gen === fetchGeneration) set({ isLoadingLocation: false });
+          });
       },
 
       setGuessPosition: (pos) => set({ guessPosition: pos }),
@@ -306,8 +311,8 @@ export const useGameStore = create<GameState>()(
             isLoadingLocation: true,
           });
 
-          fetchRandomLocation(selectedCountryId, gen).then(
-            ({ position, panoId, generation }) => {
+          fetchRandomLocation(selectedCountryId, gen)
+            .then(({ position, panoId, generation }) => {
               if (generation === fetchGeneration) {
                 set({
                   actualPosition: position,
@@ -315,8 +320,11 @@ export const useGameStore = create<GameState>()(
                   isLoadingLocation: false,
                 });
               }
-            }
-          );
+            })
+            .catch((err) => {
+              console.error("[Game] Failed to load location:", err);
+              if (gen === fetchGeneration) set({ isLoadingLocation: false });
+            });
         }
       },
 

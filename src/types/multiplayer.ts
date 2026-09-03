@@ -73,9 +73,11 @@ export interface GameStartingPayload {
 export interface RoundStartPayload {
     roundNum: number;
     timeLimit: number;
-    panoId: string | null;
-    /** Only sent for Street View initialization — NOT the answer coords */
-    panoPosition: Position;
+    /**
+     * The ONLY location data sent before the round ends. Coordinates are the
+     * answer and stay on the host until ROUND_RESULTS (MULTIPLAYER_FEATURE.md §5).
+     */
+    panoId: string;
 }
 
 export interface PlayerGuessedPayload {

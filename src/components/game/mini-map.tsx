@@ -27,7 +27,16 @@ const STAGE_SIZES: Record<ExpansionStage, { w: string; h: string }> = {
 
 const HOVER_SIZES = { w: "w-[400px]", h: "h-[270px]" };
 
-export function MiniMap() {
+interface MiniMapProps {
+  /**
+   * Overrides the singleplayer guess action. Multiplayer passes its own, because
+   * the game store's submitGuess needs actualPosition — which multiplayer
+   * deliberately withholds until the round ends.
+   */
+  onGuess?: () => void;
+}
+
+export function MiniMap({ onGuess }: MiniMapProps = {}) {
   // ── Refs ──────────────────────────────────────────────────────────────────
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -48,8 +57,10 @@ export function MiniMap() {
   const guessPosition = useGameStore((s) => s.guessPosition);
   const actualPosition = useGameStore((s) => s.actualPosition);
   const phase = useGameStore((s) => s.phase);
-  const submitGuess = useGameStore((s) => s.submitGuess);
+  const storeSubmitGuess = useGameStore((s) => s.submitGuess);
   const nextRound = useGameStore((s) => s.nextRound);
+
+  const submitGuess = onGuess ?? storeSubmitGuess;
 
   const isResult = phase === "result";
 
@@ -75,7 +86,12 @@ export function MiniMap() {
     let cancelled = false;
 
     (async () => {
-      await loadGoogleMaps();
+      try {
+        await loadGoogleMaps();
+      } catch (err) {
+        console.error("[MiniMap] Google Maps failed to load:", err);
+        return;
+      }
       if (cancelled || !mapContainerRef.current || mapRef.current) return;
 
       mapRef.current = new google.maps.Map(mapContainerRef.current, {
@@ -100,7 +116,6 @@ export function MiniMap() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Trigger resize when container size changes ────────────────────────────

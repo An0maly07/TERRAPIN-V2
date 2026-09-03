@@ -42,9 +42,65 @@ export function StreetView() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [resetView]);
 
-  // Initialize / update panorama when actualPosition changes
+  // Mount a panorama from either a position or a bare pano id
+  const mountPanorama = useCallback(
+    (
+      options: Pick<google.maps.StreetViewPanoramaOptions, "position" | "pano">
+    ) => {
+      if (!containerRef.current) return;
+
+      // Destroy previous panorama listeners
+      if (panoramaRef.current) {
+        google.maps.event.clearInstanceListeners(panoramaRef.current);
+      }
+
+      const panorama = new google.maps.StreetViewPanorama(containerRef.current, {
+        ...options,
+        pov: { heading: 0, pitch: 0 },
+        zoom: 1,
+        addressControl: false,
+        showRoadLabels: false,
+        zoomControl: false,
+        panControl: false,
+        fullscreenControl: false,
+        motionTracking: false,
+        motionTrackingControl: false,
+        disableDefaultUI: true,
+        linksControl: true,
+      });
+      panoramaRef.current = panorama;
+
+      // Emit heading changes so the CompassHUD can track panning
+      panorama.addListener("pov_changed", () => {
+        const pov = panoramaRef.current?.getPov();
+        if (pov != null) setStreetViewHeading(pov.heading);
+      });
+
+      // Remember where we started so the R shortcut can return there. When we
+      // mounted by pano id the position isn't known until the pano resolves.
+      const posListener = panorama.addListener("position_changed", () => {
+        const pos = panorama.getPosition();
+        if (pos) {
+          startPosRef.current = pos;
+          google.maps.event.removeListener(posListener);
+        }
+      });
+
+      // A bad pano id fails here rather than at lookup time
+      panorama.addListener("status_changed", () => {
+        if (panorama.getStatus() !== google.maps.StreetViewStatus.OK) {
+          setHasError(true);
+        }
+      });
+
+      setIsPanoReady(true);
+    },
+    [setStreetViewHeading]
+  );
+
+  // Initialize / update panorama when the location changes
   useEffect(() => {
-    if (!actualPosition || !containerRef.current) return;
+    if ((!actualPosition && !panoId) || !containerRef.current) return;
 
     let cancelled = false;
 
@@ -52,13 +108,27 @@ export function StreetView() {
     setHasError(false);
 
     (async () => {
-      await loadGoogleMaps();
+      try {
+        await loadGoogleMaps();
+      } catch (err) {
+        console.error("[StreetView] Google Maps failed to load:", err);
+        if (!cancelled) setHasError(true);
+        return;
+      }
       if (cancelled || !containerRef.current) return;
+
+      // Multiplayer: only the pano id is known — the coordinates are the answer
+      // and aren't sent until the round ends (MULTIPLAYER_FEATURE.md §5).
+      // Singleplayer always supplies actualPosition, so it keeps the path below.
+      if (panoId && !actualPosition) {
+        mountPanorama({ pano: panoId });
+        return;
+      }
 
       const sv = new google.maps.StreetViewService();
       const latLng = new google.maps.LatLng(
-        actualPosition.lat,
-        actualPosition.lng
+        actualPosition!.lat,
+        actualPosition!.lng
       );
 
       sv.getPanorama(
@@ -78,37 +148,7 @@ export function StreetView() {
             data?.location?.latLng
           ) {
             startPosRef.current = data.location.latLng;
-
-            // Destroy previous panorama listeners
-            if (panoramaRef.current) {
-              google.maps.event.clearInstanceListeners(panoramaRef.current);
-            }
-
-            panoramaRef.current = new google.maps.StreetViewPanorama(
-              containerRef.current!,
-              {
-                position: data.location.latLng,
-                pov: { heading: 0, pitch: 0 },
-                zoom: 1,
-                addressControl: false,
-                showRoadLabels: false,
-                zoomControl: false,
-                panControl: false,
-                fullscreenControl: false,
-                motionTracking: false,
-                motionTrackingControl: false,
-                disableDefaultUI: true,
-                linksControl: true,
-              }
-            );
-
-            // Emit heading changes so the CompassHUD can track panning
-            panoramaRef.current.addListener("pov_changed", () => {
-              const pov = panoramaRef.current?.getPov();
-              if (pov != null) setStreetViewHeading(pov.heading);
-            });
-
-            setIsPanoReady(true);
+            mountPanorama({ position: data.location.latLng });
           } else {
             setHasError(true);
           }
@@ -119,7 +159,7 @@ export function StreetView() {
     return () => {
       cancelled = true;
     };
-  }, [actualPosition]);
+  }, [actualPosition, panoId, mountPanorama]);
 
   // Cleanup on unmount
   useEffect(() => {

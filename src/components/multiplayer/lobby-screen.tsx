@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Copy,
     Check,
+    X,
     Settings,
     Play,
     LogOut,
@@ -25,32 +26,53 @@ export function LobbyScreen() {
     const startGame = useMultiplayerStore((s) => s.startGame);
     const leaveLobby = useMultiplayerStore((s) => s.leaveLobby);
     const updateSettings = useMultiplayerStore((s) => s.updateSettings);
-    const phase = useMultiplayerStore((s) => s.phase);
+    // Single source of truth for "a start is in flight" — a local latch used to
+    // stick forever whenever startGame returned without changing error or phase.
+    const isLoadingLocation = useMultiplayerStore((s) => s.isLoadingLocation);
+    const locationsLoaded = useMultiplayerStore((s) => s.locationsLoaded);
 
     const [copied, setCopied] = useState(false);
-    const [isStarting, setIsStarting] = useState(false);
-
-    // Reset loading state when an error occurs or phase reverts to lobby
-    useEffect(() => {
-        if (error || phase === "lobby") {
-            setIsStarting(false);
-        }
-    }, [error, phase]);
+    const [copyFailed, setCopyFailed] = useState(false);
 
     const copyCode = async () => {
+        let ok = false;
+
         try {
-            await navigator.clipboard.writeText(lobbyCode);
+            if (window.isSecureContext && navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(lobbyCode);
+                ok = true;
+            }
+        } catch {
+            // Fall through to the legacy path below.
+        }
+
+        if (!ok) {
+            // Insecure context (http://192.168.x.x): the async Clipboard API is
+            // unavailable, so fall back to the legacy selection-based copy.
+            try {
+                const ta = document.createElement("textarea");
+                ta.value = lobbyCode;
+                ta.setAttribute("readonly", "");
+                ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+                document.body.appendChild(ta);
+                ta.select();
+                ok = document.execCommand("copy");
+                document.body.removeChild(ta);
+            } catch {
+                ok = false;
+            }
+        }
+
+        if (ok) {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-        } catch {
-            // Fallback
+        } else {
+            setCopyFailed(true);
+            setTimeout(() => setCopyFailed(false), 3000);
         }
     };
 
-    const handleStart = () => {
-        setIsStarting(true);
-        startGame();
-    };
+    const canStart = players.length >= 2;
 
     const ROUND_OPTIONS = [3, 5, 7];
     const TIME_OPTIONS = [30, 60, 120];
@@ -87,7 +109,7 @@ export function LobbyScreen() {
                         Party Code — Share with friends
                     </p>
                     <div className="flex items-center gap-3">
-                        <span className="font-mono text-2xl font-black tracking-[0.25em] text-white sm:text-4xl">
+                        <span className="select-all font-mono text-2xl font-black tracking-[0.25em] text-white sm:text-4xl">
                             {lobbyCode}
                         </span>
                         <motion.button
@@ -96,9 +118,20 @@ export function LobbyScreen() {
                             whileTap={{ scale: 0.95 }}
                             className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white/60 transition-colors hover:bg-white/[0.1] hover:text-white"
                         >
-                            {copied ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+                            {copied ? (
+                                <Check size={16} className="text-emerald-400" />
+                            ) : copyFailed ? (
+                                <X size={16} className="text-red-400" />
+                            ) : (
+                                <Copy size={16} />
+                            )}
                         </motion.button>
                     </div>
+                    {copyFailed && (
+                        <p className="text-[0.65rem] text-red-400/80">
+                            Copy blocked — select the code manually
+                        </p>
+                    )}
                 </motion.div>
 
                 <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
@@ -232,14 +265,19 @@ export function LobbyScreen() {
 
                     {isHost ? (
                         <button
-                            onClick={handleStart}
-                            disabled={players.length < 2 || isStarting}
+                            onClick={startGame}
+                            disabled={!canStart || isLoadingLocation}
                             className="shimmer flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary/80 py-3.5 text-sm font-extrabold uppercase tracking-wide text-white transition-all duration-200 hover:shadow-[0_0_24px_oklch(0.65_0.2_265_/_0.45)] disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                            {isStarting ? (
+                            {isLoadingLocation ? (
                                 <>
                                     <Loader2 size={16} className="animate-spin" />
-                                    Loading Locations...
+                                    Loading Locations... ({locationsLoaded}/{settings.rounds})
+                                </>
+                            ) : !canStart ? (
+                                <>
+                                    <Users size={16} />
+                                    Waiting for another player...
                                 </>
                             ) : (
                                 <>

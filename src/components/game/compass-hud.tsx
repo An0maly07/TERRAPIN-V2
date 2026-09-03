@@ -38,6 +38,9 @@ const TICK_DEFS = Array.from({ length: 36 }, (_, i) => {
 export function CompassHUD() {
   const phase          = useGameStore((s) => s.phase);
   const actualPosition = useGameStore((s) => s.actualPosition);
+  // In multiplayer only the pano id changes between rounds — actualPosition is
+  // withheld until the round ends, so watch both or the ribbon never re-centres.
+  const panoId         = useGameStore((s) => s.panoId);
 
   // DOM refs — all heading-driven updates go through these, not state
   const ribbonRef  = useRef<HTMLDivElement>(null);
@@ -53,7 +56,7 @@ export function CompassHUD() {
     contRef.current    = 0;
     if (ribbonRef.current)
       ribbonRef.current.style.transform = `translateX(${PILL_CX - RIBBON_ANCHOR}px)`;
-  }, [actualPosition]);
+  }, [actualPosition, panoId]);
 
   // Subscribe to heading changes without going through React render cycle
   useEffect(() => {

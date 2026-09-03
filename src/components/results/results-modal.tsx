@@ -33,6 +33,9 @@ export function ResultsModal() {
   const streak = useGameStore((s) => s.streak);
   const totalRounds = useGameStore((s) => s.totalRounds);
   const timePerRound = useGameStore((s) => s.timePerRound);
+  const mode = useGameStore((s) => s.mode);
+  const selectedCountryId = useGameStore((s) => s.selectedCountryId);
+  const startGame = useGameStore((s) => s.startGame);
   const resetGame = useGameStore((s) => s.resetGame);
 
   // Player progression
@@ -57,7 +60,15 @@ export function ResultsModal() {
     }
   }, [isOpen, rounds, score, timePerRound, completeGame, user]);
 
+  // Restart immediately in the same mode (and country, for campaign)
   const handlePlayAgain = () => {
+    clearLastReward();
+    hasCalculatedRef.current = false;
+    startGame(mode, selectedCountryId ?? undefined);
+  };
+
+  // X / dismiss — leave the game and go back home
+  const handleClose = () => {
     clearLastReward();
     resetGame();
     router.push("/");
@@ -68,7 +79,12 @@ export function ResultsModal() {
       {/* Level-up celebration overlay (renders above everything) */}
       <LevelUpOverlay reward={lastReward} />
 
-      <Dialog open={isOpen}>
+      <Dialog
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open) handleClose();
+        }}
+      >
         <DialogContent className="glass max-h-[90vh] overflow-y-auto border-border bg-background/95 backdrop-blur-xl sm:max-w-md">
           <DialogHeader className="text-center">
             <DialogTitle className="flex flex-col items-center gap-3 text-2xl">
