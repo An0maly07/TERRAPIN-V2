@@ -6,7 +6,20 @@ import { Loader2, MapPinOff, RotateCcw } from "lucide-react";
 import { useGameStore } from "@/stores/game-store";
 import { loadGoogleMaps } from "@/lib/google-maps";
 
-export function StreetView() {
+interface StreetViewProps {
+  /**
+   * Multiplayer passes this: the answer coordinates are withheld until the
+   * round ends, so only panoId is available and StreetView must mount from
+   * that alone. Explicit rather than inferred from `!actualPosition`, because
+   * StreetView remounts fresh every round (see the phase switch in
+   * game/multiplayer/page.tsx) and on that very first render gameStore may
+   * still hold a stale actualPosition from an earlier singleplayer session in
+   * the same tab — an inferred check would race the sync effect that clears it.
+   */
+  panoOnly?: boolean;
+}
+
+export function StreetView({ panoOnly = false }: StreetViewProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const panoramaRef = useRef<google.maps.StreetViewPanorama | null>(null);
   const startPosRef = useRef<google.maps.LatLng | null>(null);
@@ -78,18 +91,16 @@ export function StreetView() {
 
       // Remember where we started so the R shortcut can return there. When we
       // mounted by pano id the position isn't known until the pano resolves.
+      // Note: status_changed/position_changed fire again on every subsequent
+      // navigation (clicking an arrow to move), not just the initial load —
+      // this listener only cares about the first resolution, hence the
+      // one-shot removal. A persistent listener here previously mis-flagged
+      // normal in-round navigation as a load failure.
       const posListener = panorama.addListener("position_changed", () => {
         const pos = panorama.getPosition();
         if (pos) {
           startPosRef.current = pos;
           google.maps.event.removeListener(posListener);
-        }
-      });
-
-      // A bad pano id fails here rather than at lookup time
-      panorama.addListener("status_changed", () => {
-        if (panorama.getStatus() !== google.maps.StreetViewStatus.OK) {
-          setHasError(true);
         }
       });
 
@@ -100,7 +111,8 @@ export function StreetView() {
 
   // Initialize / update panorama when the location changes
   useEffect(() => {
-    if ((!actualPosition && !panoId) || !containerRef.current) return;
+    if (panoOnly ? !panoId : !actualPosition) return;
+    if (!containerRef.current) return;
 
     let cancelled = false;
 
@@ -119,9 +131,8 @@ export function StreetView() {
 
       // Multiplayer: only the pano id is known — the coordinates are the answer
       // and aren't sent until the round ends (MULTIPLAYER_FEATURE.md §5).
-      // Singleplayer always supplies actualPosition, so it keeps the path below.
-      if (panoId && !actualPosition) {
-        mountPanorama({ pano: panoId });
+      if (panoOnly) {
+        mountPanorama({ pano: panoId! });
         return;
       }
 
@@ -159,7 +170,7 @@ export function StreetView() {
     return () => {
       cancelled = true;
     };
-  }, [actualPosition, panoId, mountPanorama]);
+  }, [actualPosition, panoId, panoOnly, mountPanorama]);
 
   // Cleanup on unmount
   useEffect(() => {

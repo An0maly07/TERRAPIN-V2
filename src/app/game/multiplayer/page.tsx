@@ -109,7 +109,7 @@ export default function MultiplayerGamePage() {
                 <div className="fixed inset-0 flex flex-col">
                     <MultiplayerHUD />
                     <div className="relative flex flex-1 flex-col overflow-hidden">
-                        <StreetView />
+                        <StreetView panoOnly />
                         <CompassHUD />
                         <MiniMap onGuess={submitGuess} />
                     </div>
