@@ -9,18 +9,17 @@
 
 import { supabase } from "./supabase";
 import { haversineDistance } from "./geo";
+import { randomId } from "./utils";
 import { MAX_SCORE_PER_ROUND, SCORE_DECAY_FACTOR } from "./constants";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Position } from "@/types/game";
 import type {
-    LobbySettings,
     LobbyPlayer,
     PlayerGuess,
-    RoundStartPayload,
     RoundResultsPayload,
     MatchOverPayload,
     LeaderboardEntry,
-    AVATAR_COLORS,
+    Envelope,
 } from "@/types/multiplayer";
 
 /* ── Party Code Generation ────────────────────────────────── */
@@ -47,25 +46,6 @@ export function calculateScore(distanceKm: number): number {
 /* ── Player ID ────────────────────────────────────────────── */
 
 let _playerId: string | null = null;
-
-/**
- * crypto.randomUUID is gated to secure contexts, so it is undefined when the app
- * is served over plain http (a LAN IP, say). crypto.getRandomValues is not gated,
- * so fall back to it before resorting to Math.random.
- */
-function randomId(): string {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-        return crypto.randomUUID();
-    }
-    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-        const b = crypto.getRandomValues(new Uint8Array(16));
-        b[6] = (b[6] & 0x0f) | 0x40;
-        b[8] = (b[8] & 0x3f) | 0x80;
-        const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-        return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-    }
-    return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 export function getPlayerId(): string {
     if (_playerId) return _playerId;
@@ -274,17 +254,39 @@ export function waitForOtherPresence(
 
 /* ── Broadcast Helpers ────────────────────────────────────── */
 
-export function broadcastEvent(
+/**
+ * Every broadcast is wrapped in an Envelope carrying the sender's player id.
+ * Listeners verify `from` against the current host (or the sender's own id for
+ * guess events) before acting — without this, any client on the anon key could
+ * inject ROUND_RESULTS / MATCH_OVER / SUBMIT_GUESS-as-someone-else.
+ *
+ * Resolves once the realtime server acknowledges the message; a non-"ok"
+ * status is logged instead of silently dropped.
+ */
+export async function broadcastEvent<T>(
     channel: RealtimeChannel,
     event: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    payload: any
-): void {
-    channel.send({
+    payload: T
+): Promise<void> {
+    const envelope: Envelope<T> = { from: getPlayerId(), payload };
+    const status = await channel.send({
         type: "broadcast",
         event,
-        payload,
+        payload: envelope,
     });
+    if (status !== "ok") {
+        console.warn(`[Multiplayer] ${event} not delivered:`, status);
+    }
+}
+
+/** Same envelope, sent over REST (works on a channel this client hasn't subscribed to). */
+export async function httpSendEvent<T>(
+    channel: RealtimeChannel,
+    event: string,
+    payload: T
+): Promise<void> {
+    const envelope: Envelope<T> = { from: getPlayerId(), payload };
+    await channel.httpSend(event, envelope);
 }
 
 /* ── Host Game Logic ──────────────────────────────────────── */

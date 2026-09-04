@@ -1,35 +1,27 @@
 /**
- * Supabase client for TerraPin multiplayer
- * Uses Realtime channels (Broadcast + Presence) for LAN multiplayer
+ * Supabase client for TerraPin multiplayer (Realtime Broadcast + Presence).
+ *
+ * This is the SAME cookie-backed browser client used for auth, so the realtime
+ * socket carries the user's JWT. That is a prerequisite for Supabase Realtime
+ * Authorization (private channels + RLS on realtime.messages); a bare anon
+ * client could never be authorized.
  *
  * Lazy-initialized to avoid crashing during Next.js static prerendering
  * (env vars aren't available at build time on Vercel).
  */
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-
-let _supabase: SupabaseClient | null = null;
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "./supabase/client";
 
 export function getSupabase(): SupabaseClient {
-    if (!_supabase) {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-        if (!supabaseUrl || !supabaseAnonKey) {
-            throw new Error(
-                "Missing Supabase env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
-            );
-        }
-
-        _supabase = createClient(supabaseUrl, supabaseAnonKey, {
-            realtime: {
-                params: {
-                    eventsPerSecond: 25,
-                },
-            },
-        });
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) {
+        throw new Error(
+            "Missing Supabase env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
+        );
     }
-    return _supabase;
+    return createClient() as SupabaseClient;
 }
 
 /** @deprecated Use getSupabase() instead — kept for compatibility */

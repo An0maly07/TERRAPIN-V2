@@ -1,13 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ProgressionReward, PlayerProfile } from "@/types/profile";
+import type {
+  ProgressionReward,
+  PlayerProfile,
+  CompleteGameArgs,
+  CompleteGameRound,
+} from "@/types/profile";
+import type { GameMode, RoundResult } from "@/types/game";
 import { calculateProgressionReward } from "@/lib/progression";
 import { createClient } from "@/lib/supabase/client";
 
-interface RoundInput {
-  readonly score: number;
-  readonly timeSpent: number;
-}
+type ProfileColumns = Pick<
+  PlayerProfile,
+  "level" | "total_xp" | "terra_credits" | "highest_streak" | "games_played" | "total_score"
+>;
 
 interface PlayerState {
   // ── Profile data (persisted to localStorage for offline/guest support) ──
@@ -27,13 +33,17 @@ interface PlayerState {
   // ── Actions ──
   /**
    * Called once when a game reaches the "summary" phase.
-   * Calculates the progression reward, updates local state, and
-   * optionally syncs to Supabase if a userId is provided.
+   *
+   * Guests: progression is computed and stored locally.
+   * Signed-in users: the server recomputes everything from round facts via the
+   * `complete_game` RPC and the returned row becomes the source of truth. The
+   * local calculation is only used for the optimistic reward animation.
    */
   completeGame: (
     gameScore: number,
-    rounds: ReadonlyArray<RoundInput>,
+    rounds: ReadonlyArray<RoundResult>,
     timePerRound: number,
+    mode: GameMode,
     userId?: string
   ) => ProgressionReward;
 
@@ -47,25 +57,48 @@ interface PlayerState {
   resetProgression: () => void;
 }
 
-/** Fire-and-forget RPC call to persist progression in Supabase */
+function toRoundFacts(rounds: ReadonlyArray<RoundResult>): CompleteGameRound[] {
+  return rounds.map((r) => ({
+    guess: r.guessPosition ? { lat: r.guessPosition.lat, lng: r.guessPosition.lng } : null,
+    actual: { lat: r.actualPosition.lat, lng: r.actualPosition.lng },
+    timeSpent: r.timeSpent,
+  }));
+}
+
+/** Server-authoritative sync. Resolves to the updated profile row, or null on failure. */
 async function syncProgression(
-  userId: string,
-  reward: ProgressionReward,
-  gameScore: number
-): Promise<void> {
+  mode: GameMode,
+  rounds: ReadonlyArray<RoundResult>,
+  timePerRound: number
+): Promise<ProfileColumns | null> {
   try {
     const supabase = createClient();
-    const { error } = await supabase.rpc("update_progression", {
-      p_xp_earned: reward.totalXP,
-      p_credits_earned: reward.creditsEarned,
-      p_new_level: reward.newLevel,
-      p_game_score: gameScore,
-      p_best_streak: reward.bestStreak,
-    });
-    if (error) console.error(`[TerraPin] Progression sync failed for ${userId}:`, error.message);
+    const args: CompleteGameArgs = {
+      p_mode: mode,
+      p_time_per_round: timePerRound,
+      p_rounds: toRoundFacts(rounds),
+    };
+    const { data, error } = await supabase.rpc("complete_game", args);
+    if (error) {
+      console.error("[TerraPin] Progression sync failed:", error.message);
+      return null;
+    }
+    return (data as ProfileColumns | null) ?? null;
   } catch (err) {
-    console.error(`[TerraPin] Progression sync error for ${userId}:`, err);
+    console.error("[TerraPin] Progression sync error:", err);
+    return null;
   }
+}
+
+function fromRow(row: ProfileColumns) {
+  return {
+    level: row.level,
+    totalXP: row.total_xp,
+    terraCredits: row.terra_credits,
+    highestStreak: row.highest_streak,
+    gamesPlayed: row.games_played,
+    totalScore: Number(row.total_score),
+  };
 }
 
 const INITIAL_STATE = {
@@ -84,8 +117,8 @@ export const usePlayerStore = create<PlayerState>()(
     (set, get) => ({
       ...INITIAL_STATE,
 
-      completeGame: (gameScore, rounds, timePerRound, userId) => {
-        const { level, totalXP, terraCredits, highestStreak, gamesPlayed, totalScore } = get();
+      completeGame: (gameScore, rounds, timePerRound, mode, userId) => {
+        const { level, totalXP } = get();
 
         const reward = calculateProgressionReward(
           gameScore,
@@ -95,23 +128,27 @@ export const usePlayerStore = create<PlayerState>()(
           level
         );
 
-        set({
-          level: reward.newLevel,
-          totalXP: reward.newTotalXP,
-          terraCredits: terraCredits + reward.creditsEarned,
-          highestStreak: Math.max(highestStreak, reward.bestStreak),
-          gamesPlayed: gamesPlayed + 1,
-          totalScore: totalScore + gameScore,
-          lastReward: reward,
-        });
-
-        // Fire-and-forget Supabase sync for authenticated users
-        if (userId) {
-          set({ isSyncing: true });
-          syncProgression(userId, reward, gameScore).finally(() => {
-            set({ isSyncing: false });
-          });
+        if (!userId) {
+          // Guest: local-only progression.
+          set((s) => ({
+            level: reward.newLevel,
+            totalXP: reward.newTotalXP,
+            terraCredits: s.terraCredits + reward.creditsEarned,
+            highestStreak: Math.max(s.highestStreak, reward.bestStreak),
+            gamesPlayed: s.gamesPlayed + 1,
+            totalScore: s.totalScore + gameScore,
+            lastReward: reward,
+          }));
+          return reward;
         }
+
+        // Signed in: show the optimistic reward, then adopt the server's row.
+        set({ lastReward: reward, isSyncing: true });
+        syncProgression(mode, rounds, timePerRound)
+          .then((row) => {
+            if (row) set(fromRow(row));
+          })
+          .finally(() => set({ isSyncing: false }));
 
         return reward;
       },
@@ -129,17 +166,8 @@ export const usePlayerStore = create<PlayerState>()(
           return;
         }
 
-        const data = res.data as Pick<PlayerProfile, "level" | "total_xp" | "terra_credits" | "highest_streak" | "games_played" | "total_score"> | null;
-        if (data) {
-          set({
-            level: data.level,
-            totalXP: data.total_xp,
-            terraCredits: data.terra_credits,
-            highestStreak: data.highest_streak,
-            gamesPlayed: data.games_played,
-            totalScore: Number(data.total_score),
-          });
-        }
+        const data = res.data as ProfileColumns | null;
+        if (data) set(fromRow(data));
       },
 
       clearLastReward: () => set({ lastReward: null }),
@@ -148,6 +176,9 @@ export const usePlayerStore = create<PlayerState>()(
     }),
     {
       name: "terrapin-player",
+      // Hydrated explicitly on the client (see StoreHydrator) so SSR markup and
+      // the first client render agree — avoids hydration text mismatches.
+      skipHydration: true,
       partialize: (state) => ({
         level: state.level,
         totalXP: state.totalXP,

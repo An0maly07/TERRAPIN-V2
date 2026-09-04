@@ -62,12 +62,17 @@ export default function AccountPage() {
             setSaving(true);
             setMessage(null);
 
-            const { error } = await supabase.from("profiles").upsert({
-                id: user.id,
-                username,
-                full_name: fullName,
-                updated_at: new Date().toISOString(),
-            });
+            // UPDATE, not upsert: the profile row always exists (created by the
+            // auth trigger), and column-level grants only permit these three
+            // columns — an upsert would try to write `id` back and be rejected.
+            const { error } = await supabase
+                .from("profiles")
+                .update({
+                    username,
+                    full_name: fullName,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq("id", user.id);
 
             if (error) throw error;
             setMessage({ type: "success", text: "Profile updated successfully!" });

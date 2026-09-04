@@ -24,7 +24,7 @@ import { MAX_SCORE_PER_ROUND } from "@/lib/constants";
 
 export function ResultsModal() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   // Game state
   const phase = useGameStore((s) => s.phase);
@@ -47,18 +47,20 @@ export function ResultsModal() {
   const percentage = maxPossible > 0 ? Math.round((score / maxPossible) * 100) : 0;
   const isOpen = phase === "summary";
 
-  // Calculate progression exactly once per game summary
+  // Calculate progression exactly once per game summary. Wait for auth to
+  // settle first — otherwise a signed-in player's game is recorded as a guest
+  // game and never synced to Supabase.
   const hasCalculatedRef = useRef(false);
   useEffect(() => {
-    if (isOpen && !hasCalculatedRef.current && rounds.length > 0) {
-      hasCalculatedRef.current = true;
-      const userId = user && !user.is_anonymous ? user.id : undefined;
-      completeGame(score, rounds, timePerRound, userId);
-    }
     if (!isOpen) {
       hasCalculatedRef.current = false;
+      return;
     }
-  }, [isOpen, rounds, score, timePerRound, completeGame, user]);
+    if (authLoading || hasCalculatedRef.current || rounds.length === 0) return;
+    hasCalculatedRef.current = true;
+    const userId = user && !user.is_anonymous ? user.id : undefined;
+    completeGame(score, rounds, timePerRound, mode, userId);
+  }, [isOpen, authLoading, rounds, score, timePerRound, mode, completeGame, user]);
 
   // Restart immediately in the same mode (and country, for campaign)
   const handlePlayAgain = () => {
@@ -166,7 +168,9 @@ export function ResultsModal() {
                       {round.score.toLocaleString()}
                     </span>
                     <span className="w-20 text-right text-xs text-muted-foreground">
-                      {Math.round(round.distanceKm).toLocaleString()} km
+                      {round.distanceKm < 0
+                        ? "No guess"
+                        : `${Math.round(round.distanceKm).toLocaleString()} km`}
                     </span>
                   </motion.div>
                 );

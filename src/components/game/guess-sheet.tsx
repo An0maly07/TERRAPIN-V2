@@ -36,7 +36,7 @@ export function GuessSheet() {
                 : "Click on the map to place your pin"}
             </p>
             <Button
-              onClick={submitGuess}
+              onClick={() => submitGuess()}
               disabled={!guessPosition}
               className="w-full gap-2 font-semibold"
               style={guessPosition ? { background: "var(--gradient-primary)" } : undefined}

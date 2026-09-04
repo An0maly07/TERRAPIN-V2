@@ -37,7 +37,8 @@ interface GameState {
   startGame: (mode: GameMode, countryId?: string) => void;
   setGuessPosition: (pos: Position) => void;
   setStreetViewHeading: (heading: number) => void;
-  submitGuess: () => void;
+  /** `timedOut` records a zero-score round when the clock expires with no pin. */
+  submitGuess: (opts?: { timedOut?: boolean }) => void;
   nextRound: () => void;
   tickTimer: () => void;
   resetGame: () => void;
@@ -236,7 +237,7 @@ export const useGameStore = create<GameState>()(
       setGuessPosition: (pos) => set({ guessPosition: pos }),
       setStreetViewHeading: (heading) => set({ streetViewHeading: heading }),
 
-      submitGuess: () => {
+      submitGuess: (opts) => {
         const {
           guessPosition,
           actualPosition,
@@ -245,11 +246,15 @@ export const useGameStore = create<GameState>()(
           score,
           rounds,
           streak,
+          phase,
         } = get();
-        if (!guessPosition || !actualPosition) return;
+        if (phase !== "guessing" || !actualPosition) return;
+        if (!guessPosition && !opts?.timedOut) return;
 
-        const distanceKm = haversineDistance(guessPosition, actualPosition);
-        const roundScore = calculateScore(distanceKm);
+        const distanceKm = guessPosition
+          ? haversineDistance(guessPosition, actualPosition)
+          : -1;
+        const roundScore = guessPosition ? calculateScore(distanceKm) : 0;
         const newStreak = roundScore > 2500 ? streak + 1 : 0;
 
         const result: RoundResult = {
@@ -329,12 +334,18 @@ export const useGameStore = create<GameState>()(
       },
 
       tickTimer: () => {
-        const { timer } = get();
-        if (timer > 0) {
+        const { timer, phase, isLoadingLocation, actualPosition } = get();
+        // Don't burn round time while the location is still resolving — in
+        // campaign mode that can take a large slice of a 60s round.
+        if (phase !== "guessing" || isLoadingLocation || !actualPosition) return;
+        if (timer > 1) {
           set({ timer: timer - 1 });
-        } else {
-          get().submitGuess();
+          return;
         }
+        set({ timer: 0 });
+        // Out of time: score the round (zero if no pin) so the game never
+        // freezes at 0:00 waiting for a guess that isn't coming.
+        get().submitGuess({ timedOut: true });
       },
 
       resetGame: () => {
@@ -356,6 +367,8 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: "terrapin-campaign",
+      // Hydrated explicitly on the client (see StoreHydrator).
+      skipHydration: true,
       partialize: (state) => ({
         campaignProgress: state.campaignProgress,
       }),

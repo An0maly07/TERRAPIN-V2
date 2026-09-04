@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import type { QuizQuestion } from "@/types/quiz";
+import { QUIZ_CATEGORIES } from "@/components/quiz/categories";
+import { createClient } from "@/lib/supabase/server";
 
 const SYSTEM_PROMPT = `You are a geography quiz master for TerraPin, a GeoGuessr-style game. You generate multiple-choice geography questions that are ALWAYS about real places, locations, countries, cities, landmarks, or geographic features.
 
@@ -33,7 +35,101 @@ You MUST respond with valid JSON matching this exact schema:
   "funFact": "string"
 }`;
 
+/** Only the labels we ship are accepted — the category is never free text in the prompt. */
+const ALLOWED_CATEGORIES = new Set(QUIZ_CATEGORIES.map((c) => c.label));
+
+const GEMINI_TIMEOUT_MS = 12_000;
+
+/* ── Per-user rate limit ──────────────────────────────────── */
+// In-memory sliding window. Sufficient for a single long-lived instance; on
+// a multi-instance/serverless deployment back this with Redis (e.g. Upstash)
+// using the same (userId, windowMs, max) contract.
+const RATE_MAX = 20;
+const RATE_WINDOW_MS = 60_000;
+const rateBuckets = new Map<string, number[]>();
+
+function rateLimitAllow(key: string): boolean {
+  const now = Date.now();
+  const cutoff = now - RATE_WINDOW_MS;
+  const hits = (rateBuckets.get(key) ?? []).filter((t) => t > cutoff);
+  if (hits.length >= RATE_MAX) {
+    rateBuckets.set(key, hits);
+    return false;
+  }
+  hits.push(now);
+  rateBuckets.set(key, hits);
+  // Opportunistic cleanup so the map can't grow without bound.
+  if (rateBuckets.size > 10_000) {
+    for (const [k, v] of rateBuckets) {
+      if (v.every((t) => t <= cutoff)) rateBuckets.delete(k);
+    }
+  }
+  return true;
+}
+
+/* ── Response validation ──────────────────────────────────── */
+
+function isQuizQuestion(value: unknown): value is QuizQuestion {
+  if (typeof value !== "object" || value === null) return false;
+  const q = value as Record<string, unknown>;
+  const coords = q.coordinates as Record<string, unknown> | undefined;
+  const idx = q.correctAnswerIndex;
+
+  return (
+    typeof q.question === "string" &&
+    q.question.trim().length > 0 &&
+    Array.isArray(q.options) &&
+    q.options.length === 4 &&
+    q.options.every((o) => typeof o === "string" && o.trim().length > 0) &&
+    typeof idx === "number" &&
+    Number.isInteger(idx) &&
+    idx >= 0 &&
+    idx <= 3 &&
+    typeof coords === "object" &&
+    coords !== null &&
+    typeof coords.lat === "number" &&
+    Number.isFinite(coords.lat) &&
+    Math.abs(coords.lat) <= 90 &&
+    typeof coords.lng === "number" &&
+    Number.isFinite(coords.lng) &&
+    Math.abs(coords.lng) <= 180 &&
+    typeof q.funFact === "string"
+  );
+}
+
+function errorStatus(err: unknown): number | undefined {
+  if (typeof err === "object" && err !== null && "status" in err) {
+    const s = (err as { status?: unknown }).status;
+    return typeof s === "number" ? s : undefined;
+  }
+  return undefined;
+}
+
+function isAbortLike(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /abort|timeout/i.test(err.name) || /abort|timed? ?out/i.test(err.message);
+}
+
+/* ── Handler ──────────────────────────────────────────────── */
+
 export async function POST(request: Request) {
+  // The proxy already gates this route, but never rely on middleware alone
+  // for an endpoint that spends money.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!rateLimitAllow(user.id)) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429, headers: { "Retry-After": "60" } }
+    );
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -42,22 +138,19 @@ export async function POST(request: Request) {
     );
   }
 
-  let category: string;
+  let category: unknown;
   try {
-    const body = await request.json();
-    category = body.category;
+    const body: unknown = await request.json();
+    category =
+      typeof body === "object" && body !== null
+        ? (body as Record<string, unknown>).category
+        : undefined;
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request body" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  if (!category || typeof category !== "string") {
-    return NextResponse.json(
-      { error: "A valid 'category' string is required" },
-      { status: 400 }
-    );
+  if (typeof category !== "string" || !ALLOWED_CATEGORIES.has(category)) {
+    return NextResponse.json({ error: "Unknown category" }, { status: 400 });
   }
 
   try {
@@ -67,36 +160,47 @@ export async function POST(request: Request) {
       systemInstruction: SYSTEM_PROMPT,
       generationConfig: {
         responseMimeType: "application/json",
+        maxOutputTokens: 512,
+        temperature: 0.9,
       },
     });
 
+    // The category is a vetted token, not an interpolated sentence fragment,
+    // which removes the prompt-injection surface.
     const result = await model.generateContent(
-      `Generate a geography quiz question through the lens of the "${category}" category. Make it unique and creative.`
+      { contents: [{ role: "user", parts: [{ text: `Category: ${category}` }] }] },
+      { signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS) }
     );
 
-    const text = result.response.text();
-    const data: QuizQuestion = JSON.parse(text);
+    const parsed: unknown = JSON.parse(result.response.text());
 
-    // Validate the response shape
-    if (
-      !data.question ||
-      !Array.isArray(data.options) ||
-      data.options.length !== 4 ||
-      typeof data.correctAnswerIndex !== "number" ||
-      data.correctAnswerIndex < 0 ||
-      data.correctAnswerIndex > 3 ||
-      !data.coordinates?.lat ||
-      !data.coordinates?.lng ||
-      !data.funFact
-    ) {
+    if (!isQuizQuestion(parsed)) {
       return NextResponse.json(
         { error: "AI returned an invalid question format" },
         { status: 502 }
       );
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(parsed);
   } catch (error) {
+    if (errorStatus(error) === 429) {
+      return NextResponse.json(
+        { error: "Quiz service is busy. Please retry in a moment." },
+        { status: 429, headers: { "Retry-After": "10" } }
+      );
+    }
+    if (isAbortLike(error)) {
+      return NextResponse.json(
+        { error: "Quiz generation timed out. Please retry." },
+        { status: 504 }
+      );
+    }
+    if (error instanceof SyntaxError) {
+      return NextResponse.json(
+        { error: "AI returned malformed JSON" },
+        { status: 502 }
+      );
+    }
     console.error("Gemini API error:", error);
     return NextResponse.json(
       { error: "Failed to generate quiz question" },

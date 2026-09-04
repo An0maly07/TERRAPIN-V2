@@ -7,8 +7,10 @@ export interface Position {
 }
 
 export interface RoundResult {
-  guessPosition: Position;
+  /** null when the round timed out without a pin being placed */
+  guessPosition: Position | null;
   actualPosition: Position;
+  /** -1 when there was no guess */
   distanceKm: number;
   score: number;
   timeSpent: number;

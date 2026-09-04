@@ -17,7 +17,8 @@ import type {
     MatchOverPayload,
     GameStartingPayload,
     PlayerGuessedPayload,
-    TimerUpdatePayload,
+    SubmitGuessPayload,
+    Envelope,
 } from "@/types/multiplayer";
 import { AVATAR_COLORS } from "@/types/multiplayer";
 import {
@@ -30,6 +31,7 @@ import {
     trackPresence,
     presenceToPlayers,
     broadcastEvent,
+    httpSendEvent,
     computeRoundResults,
     computeFinalLeaderboard,
     waitForOtherPresence,
@@ -114,7 +116,14 @@ let promotionTimeout: ReturnType<typeof setTimeout> | null = null;
 let roundLocations: { position: Position; panoId: string }[] = [];
 
 /** Guesses received during current round (host only) */
-let currentRoundGuesses: Map<string, { position: Position; timeSpent: number }> = new Map();
+const currentRoundGuesses: Map<string, { position: Position; timeSpent: number }> = new Map();
+
+/**
+ * Difference between the host's clock and ours, measured when ROUND_START
+ * arrives: hostNow ≈ Date.now() + clockOffsetMs. Lets every client count down
+ * from the host's `endsAt` on its own clock with no per-second timer traffic.
+ */
+let clockOffsetMs = 0;
 
 /** Guard to prevent hostEndRound from being called twice (timer + all-guessed race) */
 let roundEnding = false;
@@ -183,15 +192,21 @@ async function generateRoundLocations(
         }),
     );
 
-    return Promise.race([
-        work,
-        new Promise<never>((_, reject) =>
-            setTimeout(
-                () => reject(new Error("Timed out finding locations. Please try again.")),
-                LOCATION_GEN_TIMEOUT_MS,
-            ),
-        ),
-    ]);
+    // The deadline timer must be cleared on success, otherwise it rejects an
+    // orphaned promise 45s after every game start (unhandled rejection).
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = new Promise<never>((_, reject) => {
+        deadlineTimer = setTimeout(
+            () => reject(new Error("Timed out finding locations. Please try again.")),
+            LOCATION_GEN_TIMEOUT_MS,
+        );
+    });
+
+    try {
+        return await Promise.race([work, deadline]);
+    } finally {
+        if (deadlineTimer) clearTimeout(deadlineTimer);
+    }
 }
 
 /* ── Store ────────────────────────────────────────────────── */
@@ -492,7 +507,7 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
 
         // Broadcast settings update to all players
         if (channelRef && get().isHost) {
-            broadcastEvent(channelRef, "SETTINGS_UPDATE", newSettings);
+            void broadcastEvent<LobbySettings>(channelRef, "SETTINGS_UPDATE", newSettings);
         }
     },
 
@@ -531,10 +546,10 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
             set({ isLoadingLocation: false });
 
             // Locations ready — broadcast GAME_STARTING so all clients start countdown together
-            broadcastEvent(channelRef, "GAME_STARTING", {
+            void broadcastEvent<GameStartingPayload>(channelRef, "GAME_STARTING", {
                 totalRounds: settings.rounds,
                 settings,
-            } as GameStartingPayload);
+            });
 
             // Countdown is started from the GAME_STARTING broadcast listener
             // (host receives it too since self: true)
@@ -567,12 +582,13 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
         const timeSpent = settings.timePerRound - roundTimeLeft;
 
         // Must be set before recordGuess below — that call can synchronously
-        // end the round, which re-reads this flag.
-        set({ hasGuessed: true });
-
-        // Public: tell every client this player has guessed — no position,
-        // just the flag that drives the "has guessed" checkmark in the UI.
-        broadcastEvent(channelRef, "GUESS_SUBMITTED", { playerId: myId });
+        // end the round, which re-reads this flag. Flip our own checkmark
+        // locally; everyone else learns about it from the host's PLAYER_GUESSED
+        // echo (a client-originated "X has guessed" broadcast was spoofable).
+        set({
+            hasGuessed: true,
+            players: get().players.map((p) => (p.id === myId ? { ...p, hasGuessed: true } : p)),
+        });
 
         if (get().isHost) {
             // We are the authority. httpSend is a REST round-trip, and a guess
@@ -582,13 +598,13 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
             return;
         }
 
-        // Private: send the actual guess only to the host, via a channel
-        // only the host is subscribed to (see setupGuessesListener). Works
-        // whether or not this client is subscribed to that channel.
+        // Send the actual guess to the host over the guesses channel. Identity
+        // travels in the Envelope (`from`), never as a client-chosen playerId.
         if (guessesChannelRef) {
-            guessesChannelRef
-                .httpSend("SUBMIT_GUESS", { playerId: myId, position: guessPosition, timeSpent })
-                .catch((err) => console.error("[Multiplayer] Failed to submit guess:", err));
+            httpSendEvent<SubmitGuessPayload>(guessesChannelRef, "SUBMIT_GUESS", {
+                position: guessPosition,
+                timeSpent,
+            }).catch((err) => console.error("[Multiplayer] Failed to submit guess:", err));
         }
     },
 
@@ -596,7 +612,7 @@ export const useMultiplayerStore = create<MultiplayerState>()((set, get) => ({
     returnToLobby: () => {
         // Only host can initiate return to lobby
         if (get().isHost && channelRef) {
-            broadcastEvent(channelRef, "RETURN_TO_LOBBY", {});
+            void broadcastEvent(channelRef, "RETURN_TO_LOBBY", {});
         }
         // Non-host: handled via broadcast listener
         if (!get().isHost) return;
@@ -791,7 +807,7 @@ function maybePromoteToHost(
         // drive the match, so end it cleanly instead of hanging forever.
         if (state.phase !== "lobby" && roundLocations.length === 0) {
             console.warn("[Multiplayer] Promoted without round data — ending match");
-            if (channelRef) broadcastEvent(channelRef, "RETURN_TO_LOBBY", {});
+            if (channelRef) void broadcastEvent(channelRef, "RETURN_TO_LOBBY", {});
             doReturnToLobby();
             set({ error: "The host left — the match was ended." });
         }
@@ -821,7 +837,7 @@ function recordGuess(playerId: string, position: Position, timeSpent: number) {
     currentRoundGuesses.set(playerId, { position, timeSpent });
 
     // Mark the player as guessed locally (don't wait on the round-trip of
-    // the GUESS_SUBMITTED broadcast on the main channel to see our own update)
+    // our own PLAYER_GUESSED broadcast)
     store.setState({
         players: store.getState().players.map((p) =>
             p.id === playerId ? { ...p, hasGuessed: true } : p
@@ -829,7 +845,7 @@ function recordGuess(playerId: string, position: Position, timeSpent: number) {
     });
 
     // Confirm receipt to everyone (drives the "has guessed" checkmark)
-    broadcastEvent(channelRef, "PLAYER_GUESSED", { playerId });
+    void broadcastEvent<PlayerGuessedPayload>(channelRef, "PLAYER_GUESSED", { playerId });
 
     // Check if all connected players have guessed
     const allDone = store.getState().players.every(
@@ -845,8 +861,70 @@ function setupGuessesListener(channel: RealtimeChannel) {
     guessesListenerChannel = channel;
 
     channel.on("broadcast", { event: "SUBMIT_GUESS" }, ({ payload }) => {
-        const data = payload as { playerId: string; position: Position; timeSpent: number };
-        recordGuess(data.playerId, data.position, data.timeSpent);
+        const env = payload as Envelope<SubmitGuessPayload>;
+        if (!isValidEnvelope(env) || !isValidPosition(env.payload?.position)) {
+            console.warn("[Multiplayer] Dropped malformed SUBMIT_GUESS");
+            return;
+        }
+        // The guess is bound to whoever SENT it. A client cannot submit (or
+        // pre-empt) a guess on behalf of another player.
+        recordGuess(env.from, env.payload.position, Number(env.payload.timeSpent) || 0);
+    });
+}
+
+/* ── Envelope validation ──────────────────────────────────── */
+
+function isValidEnvelope(env: unknown): env is Envelope<unknown> {
+    return (
+        typeof env === "object" &&
+        env !== null &&
+        typeof (env as Envelope<unknown>).from === "string" &&
+        (env as Envelope<unknown>).from.length > 0
+    );
+}
+
+function isValidPosition(pos: unknown): pos is Position {
+    if (typeof pos !== "object" || pos === null) return false;
+    const { lat, lng } = pos as Position;
+    return (
+        Number.isFinite(lat) && Number.isFinite(lng) &&
+        Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+    );
+}
+
+/**
+ * The player id every host-only event must come from. Normally the presence
+ * entry flagged isHost; if none is present (host just dropped and promotion is
+ * in flight) fall back to the promotion rule — the lowest present id — so the
+ * new host's first RETURN_TO_LOBBY isn't rejected before its presence update
+ * has propagated.
+ */
+function expectedHostId(): string | null {
+    const { players } = useMultiplayerStore.getState();
+    const flagged = players.find((p) => p.isHost && p.connected);
+    if (flagged) return flagged.id;
+    const present = players.filter((p) => p.connected).map((p) => p.id).sort((a, b) => a.localeCompare(b));
+    return present[0] ?? null;
+}
+
+/** Attach a listener that only fires for envelopes sent by the current host. */
+function onHostEvent<T>(
+    channel: RealtimeChannel,
+    event: string,
+    handler: (payload: T, from: string) => void,
+) {
+    channel.on("broadcast", { event }, ({ payload }) => {
+        const env = payload as Envelope<T>;
+        if (!isValidEnvelope(env)) {
+            console.warn(`[Multiplayer] Dropped malformed ${event}`);
+            return;
+        }
+        const host = expectedHostId();
+        if (host !== null && env.from !== host) {
+            console.warn(`[Multiplayer] Dropped ${event} from non-host`, env.from);
+            return;
+        }
+        handler(env.payload, env.from);
     });
 }
 
@@ -855,14 +933,16 @@ function setupGuessesListener(channel: RealtimeChannel) {
 function setupBroadcastListeners(channel: RealtimeChannel) {
     const store = useMultiplayerStore;
 
+    // Every event below is authoritative game state, so every one is gated on
+    // the sender being the current host (see onHostEvent).
+
     // Settings update (from host)
-    channel.on("broadcast", { event: "SETTINGS_UPDATE" }, ({ payload }) => {
-        store.setState({ settings: payload as LobbySettings });
+    onHostEvent<LobbySettings>(channel, "SETTINGS_UPDATE", (settings) => {
+        store.setState({ settings });
     });
 
     // Game starting — all clients (host + non-host) start countdown together
-    channel.on("broadcast", { event: "GAME_STARTING" }, ({ payload }) => {
-        const data = payload as GameStartingPayload;
+    onHostEvent<GameStartingPayload>(channel, "GAME_STARTING", (data) => {
         store.setState({
             totalRounds: data.totalRounds,
             settings: data.settings,
@@ -879,8 +959,12 @@ function setupBroadcastListeners(channel: RealtimeChannel) {
     });
 
     // Round start
-    channel.on("broadcast", { event: "ROUND_START" }, ({ payload }) => {
-        const data = payload as RoundStartPayload;
+    onHostEvent<RoundStartPayload>(channel, "ROUND_START", (data) => {
+        // Measure our offset from the host's clock once per round: the host
+        // stamped endsAt = hostNow + timeLimit, so hostNow ≈ endsAt - timeLimit.
+        const hostNowAtSend = data.endsAt - data.timeLimit * 1000;
+        clockOffsetMs = hostNowAtSend - Date.now();
+
         store.setState({
             phase: "guessing",
             currentRound: data.roundNum,
@@ -894,39 +978,26 @@ function setupBroadcastListeners(channel: RealtimeChannel) {
             // Reset player hasGuessed status
             players: store.getState().players.map((p) => ({ ...p, hasGuessed: false })),
         });
+
+        // The host runs its own authoritative interval (see hostStartRound).
+        // Everyone else counts down locally from the shared deadline.
+        if (!store.getState().isHost) {
+            startClientCountdown(data.endsAt);
+        }
     });
 
-    // Player guessed
-    channel.on("broadcast", { event: "PLAYER_GUESSED" }, ({ payload }) => {
-        const data = payload as PlayerGuessedPayload;
+    // Player guessed — the host's confirmation that a guess was recorded.
+    // This is the ONLY source for other players' checkmarks.
+    onHostEvent<PlayerGuessedPayload>(channel, "PLAYER_GUESSED", (data) => {
         store.setState({
             players: store.getState().players.map((p) =>
                 p.id === data.playerId ? { ...p, hasGuessed: true } : p
             ),
         });
-    });
-
-    // Guess submitted (position-free — the actual position goes to the host
-    // only, over the separate guesses-only channel; see setupGuessesListener).
-    // Every client uses this just to flip the "has guessed" checkmark.
-    channel.on("broadcast", { event: "GUESS_SUBMITTED" }, ({ payload }) => {
-        const data = payload as { playerId: string };
-        store.setState({
-            players: store.getState().players.map((p) =>
-                p.id === data.playerId ? { ...p, hasGuessed: true } : p
-            ),
-        });
-    });
-
-    // Timer update
-    channel.on("broadcast", { event: "TIMER_UPDATE" }, ({ payload }) => {
-        const data = payload as TimerUpdatePayload;
-        store.setState({ roundTimeLeft: data.timeLeft });
     });
 
     // Round results
-    channel.on("broadcast", { event: "ROUND_RESULTS" }, ({ payload }) => {
-        const data = payload as RoundResultsPayload;
+    onHostEvent<RoundResultsPayload>(channel, "ROUND_RESULTS", (data) => {
         clearTimers();
 
         // Update player scores
@@ -959,8 +1030,7 @@ function setupBroadcastListeners(channel: RealtimeChannel) {
     });
 
     // Match over
-    channel.on("broadcast", { event: "MATCH_OVER" }, ({ payload }) => {
-        const data = payload as MatchOverPayload;
+    onHostEvent<MatchOverPayload>(channel, "MATCH_OVER", (data) => {
         clearTimers();
         store.setState({
             phase: "match-summary",
@@ -969,9 +1039,32 @@ function setupBroadcastListeners(channel: RealtimeChannel) {
     });
 
     // Return to lobby (from host, received by all clients)
-    channel.on("broadcast", { event: "RETURN_TO_LOBBY" }, () => {
+    onHostEvent<Record<string, never>>(channel, "RETURN_TO_LOBBY", () => {
         doReturnToLobby();
     });
+}
+
+/**
+ * Non-host countdown driven by the host's deadline rather than per-second
+ * timer packets. Immune to a throttled host tab and to dropped broadcasts.
+ */
+function startClientCountdown(endsAt: number) {
+    const store = useMultiplayerStore;
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+    const tick = () => {
+        const hostNow = Date.now() + clockOffsetMs;
+        const left = Math.max(0, Math.ceil((endsAt - hostNow) / 1000));
+        if (store.getState().roundTimeLeft !== left) {
+            store.setState({ roundTimeLeft: left });
+        }
+        if (left <= 0 && timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+    };
+    tick();
+    timerInterval = setInterval(tick, 250);
 }
 
 /* ── Host Round Management ────────────────────────────────── */
@@ -984,36 +1077,45 @@ function hostStartRound(roundNum: number) {
     const location = roundLocations[roundNum - 1];
     if (!channelRef || !location) {
         console.error("[Multiplayer] hostStartRound aborted — missing channel or location", { roundNum });
-        if (channelRef) broadcastEvent(channelRef, "RETURN_TO_LOBBY", {});
+        if (channelRef) void broadcastEvent(channelRef, "RETURN_TO_LOBBY", {});
         doReturnToLobby();
         store.setState({ error: "Round data missing — returned to the lobby." });
         return;
     }
 
+    // Never stack a second interval on top of a live one (duplicate
+    // GAME_STARTING, reconnect replay, etc.).
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
     currentRoundGuesses.clear();
     roundEnding = false; // Reset guard for the new round
 
+    // Wall-clock deadline. Clients count down from this on their own clocks.
+    const endsAt = Date.now() + settings.timePerRound * 1000;
+    clockOffsetMs = 0; // we ARE the host clock
+
     // Broadcast round start. Only the panorama id goes out — the coordinates
     // ARE the answer, so they stay on the host until ROUND_RESULTS.
-    broadcastEvent(channelRef, "ROUND_START", {
+    void broadcastEvent<RoundStartPayload>(channelRef, "ROUND_START", {
         roundNum,
         timeLimit: settings.timePerRound,
         panoId: location.panoId,
-    } as RoundStartPayload);
+        endsAt,
+    });
 
-    // Start round timer
-    let timeLeft = settings.timePerRound;
+    store.setState({ roundTimeLeft: settings.timePerRound });
+
+    // Authoritative round timer, anchored to Date.now() so a throttled
+    // background tab can't stretch the round.
     timerInterval = setInterval(() => {
-        timeLeft--;
-        if (channelRef) {
-            broadcastEvent(channelRef, "TIMER_UPDATE", { timeLeft } as TimerUpdatePayload);
+        const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+        if (store.getState().roundTimeLeft !== left) {
+            store.setState({ roundTimeLeft: left });
         }
-        // Also update host's own store directly (don't rely on broadcast round-trip)
-        store.setState({ roundTimeLeft: timeLeft });
-        if (timeLeft <= 0) {
+        if (left <= 0) {
             hostEndRound();
         }
-    }, 1000);
+    }, 250);
 }
 
 function hostEndRound() {
@@ -1043,7 +1145,7 @@ function hostEndRound() {
     );
 
     // Broadcast results
-    broadcastEvent(channelRef, "ROUND_RESULTS", results);
+    void broadcastEvent<RoundResultsPayload>(channelRef, "ROUND_RESULTS", results);
 }
 
 function hostEndMatch() {
@@ -1052,7 +1154,7 @@ function hostEndMatch() {
     const { players } = store.getState();
 
     const finalResults = computeFinalLeaderboard(players);
-    broadcastEvent(channelRef, "MATCH_OVER", finalResults);
+    void broadcastEvent<MatchOverPayload>(channelRef, "MATCH_OVER", finalResults);
 }
 
 /* ── Countdown ────────────────────────────────────────────── */

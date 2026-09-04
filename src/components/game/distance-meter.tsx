@@ -22,9 +22,11 @@ export function DistanceMeter({ distanceKm, score }: DistanceMeterProps) {
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted-foreground">
-          {distanceKm < 1
-            ? `${Math.round(distanceKm * 1000)} m`
-            : `${Math.round(distanceKm).toLocaleString()} km`}
+          {distanceKm < 0
+            ? "No guess"
+            : distanceKm < 1
+              ? `${Math.round(distanceKm * 1000)} m`
+              : `${Math.round(distanceKm).toLocaleString()} km`}
         </span>
         <span className="font-bold">{score.toLocaleString()} pts</span>
       </div>

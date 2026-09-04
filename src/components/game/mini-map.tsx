@@ -229,7 +229,7 @@ export function MiniMap({ onGuess }: MiniMapProps = {}) {
 
         // Fit bounds with a slight delay so resize completes first
         const map = mapRef.current;
-        setTimeout(() => {
+        const fitTimer = setTimeout(() => {
           const bounds = new google.maps.LatLngBounds();
           bounds.extend({ lat: guessPosition.lat, lng: guessPosition.lng });
           bounds.extend({ lat: actualPosition.lat, lng: actualPosition.lng });
@@ -240,7 +240,16 @@ export function MiniMap({ onGuess }: MiniMapProps = {}) {
             right: 80,
           });
         }, 100);
+        return () => clearTimeout(fitTimer);
       }
+
+      // No guess this round (timed out): just centre on the answer.
+      const map = mapRef.current;
+      const centreTimer = setTimeout(() => {
+        map.setCenter({ lat: actualPosition.lat, lng: actualPosition.lng });
+        map.setZoom(4);
+      }, 100);
+      return () => clearTimeout(centreTimer);
     }
   }, [phase, actualPosition, guessPosition, isMapReady]);
 
@@ -261,15 +270,29 @@ export function MiniMap({ onGuess }: MiniMapProps = {}) {
       }
       setHasGuess(false);
       // Trigger resize after container shrinks back to mini size
-      setTimeout(() => {
+      const resetTimer = setTimeout(() => {
         if (mapRef.current) {
           google.maps.event.trigger(mapRef.current, "resize");
           mapRef.current.setCenter({ lat: 20, lng: 0 });
           mapRef.current.setZoom(2);
         }
       }, 60);
+      return () => clearTimeout(resetTimer);
     }
   }, [phase, isMapReady]);
+
+  // Release the map on unmount (listeners + DOM) so leaving the game page
+  // doesn't retain a live Map instance.
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    return () => {
+      if (mapRef.current) {
+        google.maps.event.clearInstanceListeners(mapRef.current);
+        mapRef.current = null;
+      }
+      container?.replaceChildren();
+    };
+  }, []);
 
   // ── Keyboard: Space to submit, N for next round ───────────────────────────
   useEffect(() => {
@@ -520,7 +543,7 @@ export function MiniMap({ onGuess }: MiniMapProps = {}) {
                 className="mt-2"
               >
                 <motion.button
-                  onClick={submitGuess}
+                  onClick={() => submitGuess()}
                   disabled={!guessPosition}
                   whileHover={guessPosition ? { scale: 1.02 } : undefined}
                   whileTap={guessPosition ? { scale: 0.97 } : undefined}

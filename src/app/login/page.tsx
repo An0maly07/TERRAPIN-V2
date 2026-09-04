@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, User, Eye, EyeOff, ArrowRight, Globe2, Loader2 } from "lucide-react";
-import { login, signup } from "./actions";
+import { login, signup, type AuthState } from "./actions";
 import { useNotificationStore } from "@/stores/notifications";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
@@ -14,51 +14,51 @@ type AuthMode = "login" | "signup";
 export default function LoginPage() {
     const [mode, setMode] = useState<AuthMode>("login");
     const [showPassword, setShowPassword] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
-    const [isPending, startTransition] = useTransition();
+    const [guestError, setGuestError] = useState<string | null>(null);
     const addNotification = useNotificationStore((s) => s.addNotification);
     const router = useRouter();
     const [guestLoading, setGuestLoading] = useState(false);
 
+    // React 19: the server action's return value IS the form state. No manual
+    // setError/useTransition plumbing, and no lost success message on redirect.
+    const [state, formAction, isPending] = useActionState<AuthState, FormData>(
+        mode === "login" ? login : signup,
+        null
+    );
+
+    const error = guestError ?? state?.error ?? null;
+    const successMessage = state?.needsConfirmation
+        ? "Check your email to confirm your account!"
+        : null;
+
+    useEffect(() => {
+        if (!state?.needsConfirmation) return;
+        addNotification({
+            type: "warning",
+            title: "Verify Your Account",
+            message: "We sent a confirmation link to your email. Please verify your account to unlock all features.",
+            icon: "📧",
+        });
+    }, [state?.needsConfirmation, addNotification]);
+
     const handleGuestLogin = async () => {
         setGuestLoading(true);
-        setError(null);
+        setGuestError(null);
         try {
             const supabase = createClient();
-            const { error } = await supabase.auth.signInAnonymously();
-            if (error) {
-                // Anonymous auth not enabled — just navigate as unauthenticated guest
-                router.push("/");
+            const { error: anonError } = await supabase.auth.signInAnonymously();
+            if (anonError) {
+                // Anonymous auth not enabled — the proxy will bounce us back
+                // here, so say why instead of silently looping.
+                setGuestError("Guest mode is unavailable right now. Please sign in.");
+                setGuestLoading(false);
                 return;
             }
             router.push("/");
         } catch {
-            // Fallback: navigate without session
-            router.push("/");
+            setGuestError("Guest mode is unavailable right now. Please sign in.");
+            setGuestLoading(false);
         }
-    };
-
-    const handleSubmit = async (formData: FormData) => {
-        setError(null);
-        setSuccessMessage(null);
-
-        startTransition(async () => {
-            const action = mode === "login" ? login : signup;
-            const result = await action(formData);
-
-            if (result?.error) {
-                setError(result.error);
-            } else if (mode === "signup") {
-                setSuccessMessage("Check your email to confirm your account!");
-                addNotification({
-                    type: "warning",
-                    title: "Verify Your Account",
-                    message: "We sent a confirmation link to your email. Please verify your account to unlock all features.",
-                    icon: "📧",
-                });
-            }
-        });
     };
 
     return (
@@ -129,8 +129,7 @@ export default function LoginPage() {
                             type="button"
                             onClick={() => {
                                 setMode("login");
-                                setError(null);
-                                setSuccessMessage(null);
+                                setGuestError(null);
                             }}
                             className={`relative z-10 flex-1 rounded-xl py-2.5 text-sm font-bold uppercase tracking-wider transition-colors duration-200 ${mode === "login" ? "text-white" : "text-muted-foreground hover:text-foreground"
                                 }`}
@@ -141,8 +140,7 @@ export default function LoginPage() {
                             type="button"
                             onClick={() => {
                                 setMode("signup");
-                                setError(null);
-                                setSuccessMessage(null);
+                                setGuestError(null);
                             }}
                             className={`relative z-10 flex-1 rounded-xl py-2.5 text-sm font-bold uppercase tracking-wider transition-colors duration-200 ${mode === "signup" ? "text-white" : "text-muted-foreground hover:text-foreground"
                                 }`}
@@ -152,7 +150,7 @@ export default function LoginPage() {
                     </div>
 
                     {/* Form */}
-                    <form action={handleSubmit} className="space-y-5">
+                    <form action={formAction} className="space-y-5">
                         <AnimatePresence mode="wait">
                             {mode === "signup" && (
                                 <motion.div

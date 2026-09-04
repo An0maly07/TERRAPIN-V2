@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { randomId } from "@/lib/utils";
 
 export interface Notification {
     id: string;
@@ -34,7 +35,8 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     toastIds: [],
 
     addNotification: (notification) => {
-        const id = crypto.randomUUID();
+        // crypto.randomUUID throws in insecure contexts (http:// on a LAN IP).
+        const id = randomId();
         set((state) => ({
             notifications: [
                 {

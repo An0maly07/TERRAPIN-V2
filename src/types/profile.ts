@@ -46,12 +46,16 @@ export interface LevelThreshold {
   xpRequired: number;
 }
 
-/** Arguments passed to the Supabase `update_progression` RPC */
-export interface UpdateProgressionArgs {
-  p_user_id: string;
-  p_xp_earned: number;
-  p_credits_earned: number;
-  p_new_level: number;
-  p_game_score: number;
-  p_best_streak: number;
+/** One round as sent to the server-authoritative `complete_game` RPC */
+export interface CompleteGameRound {
+  guess: { lat: number; lng: number } | null;
+  actual: { lat: number; lng: number };
+  timeSpent: number;
+}
+
+/** Arguments passed to the Supabase `complete_game` RPC */
+export interface CompleteGameArgs {
+  p_mode: "classic" | "campaign";
+  p_time_per_round: number;
+  p_rounds: CompleteGameRound[];
 }

@@ -55,47 +55,67 @@ export function StreetView({ panoOnly = false }: StreetViewProps = {}) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [resetView]);
 
-  // Mount a panorama from either a position or a bare pano id
+  // Mount a panorama from either a position or a bare pano id.
+  //
+  // ONE StreetViewPanorama is created per component instance and reused
+  // across rounds via setPano/setPosition. Creating a new panorama on the same
+  // container every round leaked a WebGL context each time; Chrome caps those
+  // at ~16 per page, after which Street View renders black.
   const mountPanorama = useCallback(
     (
       options: Pick<google.maps.StreetViewPanoramaOptions, "position" | "pano">
     ) => {
-      if (!containerRef.current) return;
+      const container = containerRef.current;
+      if (!container) return;
 
-      // Destroy previous panorama listeners
-      if (panoramaRef.current) {
-        google.maps.event.clearInstanceListeners(panoramaRef.current);
+      if (!panoramaRef.current) {
+        const panorama = new google.maps.StreetViewPanorama(container, {
+          pov: { heading: 0, pitch: 0 },
+          zoom: 1,
+          addressControl: false,
+          showRoadLabels: false,
+          zoomControl: false,
+          panControl: false,
+          fullscreenControl: false,
+          motionTracking: false,
+          motionTrackingControl: false,
+          disableDefaultUI: true,
+          linksControl: true,
+        });
+
+        // Emit heading changes so the CompassHUD can track panning
+        panorama.addListener("pov_changed", () => {
+          const pov = panorama.getPov();
+          if (pov != null) setStreetViewHeading(pov.heading);
+        });
+
+        // A bare pano id that fails to resolve (multiplayer path) used to
+        // leave a black screen with no error state.
+        panorama.addListener("status_changed", () => {
+          if (panorama.getStatus() !== google.maps.StreetViewStatus.OK) {
+            setHasError(true);
+            setIsPanoReady(false);
+          }
+        });
+
+        panoramaRef.current = panorama;
       }
 
-      const panorama = new google.maps.StreetViewPanorama(containerRef.current, {
-        ...options,
-        pov: { heading: 0, pitch: 0 },
-        zoom: 1,
-        addressControl: false,
-        showRoadLabels: false,
-        zoomControl: false,
-        panControl: false,
-        fullscreenControl: false,
-        motionTracking: false,
-        motionTrackingControl: false,
-        disableDefaultUI: true,
-        linksControl: true,
-      });
-      panoramaRef.current = panorama;
-
-      // Emit heading changes so the CompassHUD can track panning
-      panorama.addListener("pov_changed", () => {
-        const pov = panoramaRef.current?.getPov();
-        if (pov != null) setStreetViewHeading(pov.heading);
-      });
+      const panorama = panoramaRef.current;
+      if (options.pano) {
+        panorama.setPano(options.pano);
+      } else if (options.position) {
+        panorama.setPosition(options.position);
+      }
+      panorama.setPov({ heading: 0, pitch: 0 });
+      panorama.setZoom(1);
+      panorama.setVisible(true);
 
       // Remember where we started so the R shortcut can return there. When we
       // mounted by pano id the position isn't known until the pano resolves.
-      // Note: status_changed/position_changed fire again on every subsequent
-      // navigation (clicking an arrow to move), not just the initial load —
-      // this listener only cares about the first resolution, hence the
-      // one-shot removal. A persistent listener here previously mis-flagged
-      // normal in-round navigation as a load failure.
+      // Note: position_changed fires again on every subsequent navigation
+      // (clicking an arrow to move), not just the initial load — this listener
+      // only cares about the first resolution, hence the one-shot removal.
       const posListener = panorama.addListener("position_changed", () => {
         const pos = panorama.getPosition();
         if (pos) {
@@ -172,13 +192,17 @@ export function StreetView({ panoOnly = false }: StreetViewProps = {}) {
     };
   }, [actualPosition, panoId, panoOnly, mountPanorama]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — release the WebGL context, not just the listeners.
   useEffect(() => {
+    const container = containerRef.current;
     return () => {
-      if (panoramaRef.current) {
-        google.maps.event.clearInstanceListeners(panoramaRef.current);
+      const panorama = panoramaRef.current;
+      if (panorama) {
+        google.maps.event.clearInstanceListeners(panorama);
+        panorama.setVisible(false);
         panoramaRef.current = null;
       }
+      container?.replaceChildren();
     };
   }, []);
 

@@ -65,6 +65,12 @@ export interface LeaderboardEntry {
 
 /* ── Broadcast Event Payloads ───────────────────────────── */
 
+/** Wire format for every broadcast: the sender's player id plus the payload. */
+export interface Envelope<T> {
+    from: string;
+    payload: T;
+}
+
 export interface GameStartingPayload {
     totalRounds: number;
     settings: LobbySettings;
@@ -78,14 +84,22 @@ export interface RoundStartPayload {
      * answer and stay on the host until ROUND_RESULTS (MULTIPLAYER_FEATURE.md §5).
      */
     panoId: string;
+    /**
+     * Host wall-clock (epoch ms) at which the round ends. Clients derive their
+     * own countdown from this plus a clock offset measured on receipt, so a
+     * throttled host tab or dropped timer packets can't desync the clocks.
+     */
+    endsAt: number;
 }
 
 export interface PlayerGuessedPayload {
     playerId: string;
 }
 
-export interface TimerUpdatePayload {
-    timeLeft: number;
+/** Sent by a guesser to the host over the guesses channel. Identity comes from the Envelope. */
+export interface SubmitGuessPayload {
+    position: Position;
+    timeSpent: number;
 }
 
 export interface RoundResultsPayload {

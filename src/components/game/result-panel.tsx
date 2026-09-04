@@ -99,9 +99,11 @@ export function ResultPanel() {
 
   const rating = getRating(lastRound.score);
   const distanceDisplay =
-    lastRound.distanceKm < 1
-      ? `${Math.round(lastRound.distanceKm * 1000)} m`
-      : `${Math.round(lastRound.distanceKm).toLocaleString()} km`;
+    lastRound.distanceKm < 0
+      ? "No guess"
+      : lastRound.distanceKm < 1
+        ? `${Math.round(lastRound.distanceKm * 1000)} m`
+        : `${Math.round(lastRound.distanceKm).toLocaleString()} km`;
 
   return (
     <motion.div
